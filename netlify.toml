@@ -1,0 +1,11 @@
+[build]
+  command = "cd client && npm install && npm run build"
+  publish = "client/dist"
+
+[functions]
+  directory = "server/netlify/functions"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
