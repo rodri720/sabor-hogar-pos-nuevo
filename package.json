@@ -14,7 +14,7 @@
     "serverless-http": "^4.0.0"
   },
   "scripts": {
-    "dev": "nodemon ./index.js",
+     "dev": "node index.js", "dev:watch": "nodemon index.js",
     "start": "node index.js",
     "seed": "node src/seeds/seed.js"
   },

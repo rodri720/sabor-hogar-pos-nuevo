@@ -1,20 +1,17 @@
-import { useEffect, useState } from 'react';
-import axios from 'axios';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Dashboard from './pages/Dashboard';
+import MesaCliente from './pages/MesaCliente';
+import CierreCaja from './pages/CierreCaja';
 
 function App() {
-  const [status, setStatus] = useState('');
-
-  useEffect(() => {
-    axios.get('http://localhost:4000/api/health')
-      .then(res => setStatus(res.data.status))
-      .catch(err => console.error(err));
-  }, []);
-
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-      <h1 className="text-4xl font-bold text-amber-600">Sabor Hogar POS</h1>
-      <p>Backend: {status}</p>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/mesa/:id" element={<MesaCliente />} />
+        <Route path="/cierre" element={<CierreCaja />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 

@@ -2,12 +2,15 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import pool from './db/pool.js';
-
+import pool from './src/db/pool.js';
+import mozosRoutes from './src/routes/mozos.js';
+import combosRoutes from './src/routes/combos.js';
+import gastosRoutes from './src/routes/gastos.js';
+import cierreRoutes from './src/routes/cierre.js';
 // Rutas
-import productosRoutes from './routes/productos.js';
-import mesasRoutes from './routes/mesas.js';
-import pedidosRoutes from './routes/pedidos.js';
+import productosRoutes from './src/routes/productos.js';
+import mesasRoutes from './src/routes/mesas.js';
+import pedidosRoutes from './src/routes/pedidos.js';
 
 dotenv.config();
 const app = express();
@@ -22,7 +25,10 @@ app.use(morgan('dev'));
 app.use('/api/productos', productosRoutes);
 app.use('/api/mesas', mesasRoutes);
 app.use('/api/pedidos', pedidosRoutes);
-
+app.use('/api/mozos', mozosRoutes);
+app.use('/api/combos', combosRoutes);
+app.use('/api/gastos', gastosRoutes);
+app.use('/api/cierre', cierreRoutes);
 // Ruta de prueba
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date() });
