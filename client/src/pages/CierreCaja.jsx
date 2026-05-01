@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Container, Row, Col, Card, Table, Button, Form } from 'react-bootstrap';
 import { getVentasPorFecha, getGastos, crearGasto, getCierreDiario } from '../api';
 
 export default function CierreCaja() {
@@ -9,65 +10,86 @@ export default function CierreCaja() {
   const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '', categoria: '' });
 
   useEffect(() => {
-    cargarDatos();
+    const cargar = async () => {
+      const v = await getVentasPorFecha(fecha);
+      const g = await getGastos(fecha);
+      const r = await getCierreDiario(fecha);
+      setVentas(v.data);
+      setGastos(g.data);
+      setResumen(r.data);
+    };
+    cargar();
   }, [fecha]);
-
-  const cargarDatos = async () => {
-    const ventasRes = await getVentasPorFecha(fecha);
-    const gastosRes = await getGastos(fecha);
-    const cierreRes = await getCierreDiario(fecha);
-    setVentas(ventasRes.data);
-    setGastos(gastosRes.data);
-    setResumen(cierreRes.data);
-  };
 
   const handleAddGasto = async () => {
     await crearGasto({ ...nuevoGasto, fecha });
-    cargarDatos();
     setNuevoGasto({ concepto: '', monto: '', categoria: '' });
-  };
-
-  const imprimir = () => {
-    window.print();
+    const g = await getGastos(fecha);
+    const r = await getCierreDiario(fecha);
+    setGastos(g.data);
+    setResumen(r.data);
   };
 
   return (
-    <div>
-      <h1>Cierre de Caja</h1>
-      <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} />
-      <button onClick={imprimir}>Imprimir Reporte</button>
+    <Container fluid className="p-4">
+      <h1 className="mb-4">Cierre de Caja</h1>
+      <Form.Group className="mb-3">
+        <Form.Label>Fecha</Form.Label>
+        <Form.Control type="date" value={fecha} onChange={e => setFecha(e.target.value)} />
+      </Form.Group>
 
-      <div>
-        <h2>Resumen del día</h2>
-        {resumen && (
-          <>
-            <p>Total Ventas: ${resumen.total_ventas}</p>
-            <p>Total Gastos: ${resumen.total_gastos}</p>
-            <p>Ganancia Neta: ${resumen.ganancia_neta}</p>
-          </>
-        )}
-      </div>
+      {resumen && (
+        <Row className="mb-4">
+          <Col md={4}><Card><Card.Body><h5>Total Ventas</h5><p className="h3">${resumen.total_ventas.toLocaleString()}</p></Card.Body></Card></Col>
+          <Col md={4}><Card><Card.Body><h5>Total Gastos</h5><p className="h3">${resumen.total_gastos.toLocaleString()}</p></Card.Body></Card></Col>
+          <Col md={4}><Card><Card.Body><h5>Ganancia Neta</h5><p className="h3">${resumen.ganancia_neta.toLocaleString()}</p></Card.Body></Card></Col>
+        </Row>
+      )}
 
-      <div>
-        <h2>Ventas del día</h2>
-        <table border="1"><tbody>
-          {ventas.map(v => (
-            <tr key={v.id}><td>Factura #{v.numero_factura}</td><td>${v.total}</td><td>{v.metodo_pago}</td><td>{v.fecha}</td></tr>
-          ))}
-        </tbody></table>
-      </div>
-
-      <div>
-        <h2>Gastos del día</h2>
-        <ul>
-          {gastos.map(g => <li key={g.id}>{g.concepto} - ${g.monto} ({g.categoria})</li>)}
-        </ul>
-        <h3>Agregar gasto</h3>
-        <input placeholder="Concepto" value={nuevoGasto.concepto} onChange={e => setNuevoGasto({...nuevoGasto, concepto: e.target.value})} />
-        <input placeholder="Monto" type="number" value={nuevoGasto.monto} onChange={e => setNuevoGasto({...nuevoGasto, monto: e.target.value})} />
-        <input placeholder="Categoría" value={nuevoGasto.categoria} onChange={e => setNuevoGasto({...nuevoGasto, categoria: e.target.value})} />
-        <button onClick={handleAddGasto}>Registrar Gasto</button>
-      </div>
-    </div>
+      <Row>
+        <Col md={6}>
+          <h3>Ventas del día</h3>
+          <Table striped bordered hover>
+            <thead><tr><th>#Factura</th><th>Total</th><th>Método</th><th>Hora</th></tr></thead>
+            <tbody>
+              {ventas.map(v => (
+                <tr key={v.id}>
+                  <td>{v.numero_factura || v.id}</td>
+                  <td>${v.total?.toLocaleString()}</td>
+                  <td>{v.metodo_pago}</td>
+                  <td>{new Date(v.fecha).toLocaleTimeString()}</td>
+                </tr>
+              ))}
+              {ventas.length === 0 && <tr><td colSpan="4">Sin ventas</td></tr>}
+            </tbody>
+          </Table>
+        </Col>
+        <Col md={6}>
+          <h3>Gastos del día</h3>
+          <Table striped bordered hover>
+            <thead><tr><th>Concepto</th><th>Monto</th><th>Categoría</th></tr></thead>
+            <tbody>
+              {gastos.map(g => (
+                <tr key={g.id}>
+                  <td>{g.concepto}</td>
+                  <td>${g.monto?.toLocaleString()}</td>
+                  <td>{g.categoria}</td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          <Card>
+            <Card.Body>
+              <h5>Agregar gasto</h5>
+              <Form.Control className="mb-2" placeholder="Concepto" value={nuevoGasto.concepto} onChange={e => setNuevoGasto({...nuevoGasto, concepto: e.target.value})} />
+              <Form.Control className="mb-2" type="number" placeholder="Monto" value={nuevoGasto.monto} onChange={e => setNuevoGasto({...nuevoGasto, monto: e.target.value})} />
+              <Form.Control className="mb-2" placeholder="Categoría" value={nuevoGasto.categoria} onChange={e => setNuevoGasto({...nuevoGasto, categoria: e.target.value})} />
+              <Button onClick={handleAddGasto}>Registrar Gasto</Button>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+      <Button variant="secondary" className="mt-3" onClick={() => window.print()}>Imprimir cierre</Button>
+    </Container>
   );
 }
