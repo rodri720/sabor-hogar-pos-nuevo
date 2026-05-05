@@ -1,5 +1,6 @@
 import express from 'express';
 import { 
+  getPedidos,
   getPedidoActivoPorMesa, 
   crearPedido, 
   agregarProducto, 
@@ -9,6 +10,7 @@ import {
 
 const router = express.Router();
 
+router.get('/', getPedidos);
 router.get('/mesa/:mesaId', getPedidoActivoPorMesa);
 router.post('/', crearPedido);
 router.post('/detalle', agregarProducto);

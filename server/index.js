@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import pool from './src/db/pool.js';
+import './src/db/createTables.js';
 import mozosRoutes from './src/routes/mozos.js';
 import combosRoutes from './src/routes/combos.js';
 import gastosRoutes from './src/routes/gastos.js';
@@ -11,7 +11,7 @@ import cierreRoutes from './src/routes/cierre.js';
 import productosRoutes from './src/routes/productos.js';
 import mesasRoutes from './src/routes/mesas.js';
 import pedidosRoutes from './src/routes/pedidos.js';
-
+import ventasRoutes from './src/routes/ventas.js';
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -29,6 +29,7 @@ app.use('/api/mozos', mozosRoutes);
 app.use('/api/combos', combosRoutes);
 app.use('/api/gastos', gastosRoutes);
 app.use('/api/cierre', cierreRoutes);
+app.use('/api/ventas', ventasRoutes);
 // Ruta de prueba
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date() });
