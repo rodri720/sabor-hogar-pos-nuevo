@@ -1,20 +1,30 @@
-import express from 'express';
-import { 
+import { Router } from 'express';
+import { refacturarPedido } from '../controllers/pedidoController.js';
+import { agregarProducto } from '../controllers/pedidoController.js';
+import {
   getPedidos,
-  getPedidoActivoPorMesa, 
-  crearPedido, 
-  agregarProducto, 
+  getPedidoById,
+  getPedidoActivoPorMesa,
+  crearPedido,
+  actualizarPedido,
+  eliminarPedido,
   eliminarProducto,
-  cerrarPedido 
+  cerrarPedido
 } from '../controllers/pedidoController.js';
 
-const router = express.Router();
+const router = Router();
 
 router.get('/', getPedidos);
+router.get('/:id', getPedidoById);
 router.get('/mesa/:mesaId', getPedidoActivoPorMesa);
 router.post('/', crearPedido);
-router.post('/detalle', agregarProducto);
+router.put('/:id', actualizarPedido);
+router.delete('/:id', eliminarPedido);
+router.post('/:id/agregarProducto', agregarProducto);
 router.delete('/detalle/:detalleId', eliminarProducto);
 router.post('/:id/cerrar', cerrarPedido);
+router.post('/:id/refacturar', refacturarPedido);
+router.get('/mesa/:mesaId', getPedidoActivoPorMesa);
+router.get('/:id', getPedidoById);
 
 export default router;

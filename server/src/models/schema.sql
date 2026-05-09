@@ -46,6 +46,18 @@ CREATE TABLE mozos (
     activo BOOLEAN DEFAULT true
 );
 
+CREATE TABLE IF NOT EXISTS facturas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pedido_id INTEGER,
+  numero INTEGER,
+  cae TEXT,
+  vencimiento_cae TEXT,
+  total REAL,
+  punto_venta INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+``
+
 -- Tabla de ventas (encabezado de factura)
 CREATE TABLE ventas (
     id SERIAL PRIMARY KEY,
