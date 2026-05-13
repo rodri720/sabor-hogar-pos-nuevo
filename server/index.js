@@ -3,6 +3,10 @@ import cors from 'cors';
 import path from 'path';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 import { crearTablas } from './src/db/createTables.js';
 
@@ -16,20 +20,23 @@ import gastosRoutes from './src/routes/gastos.js';
 import cierreRoutes from './src/routes/cierre.js';
 import ventasRoutes from './src/routes/ventas.js';
 
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
-const PORT = process.env.PORT || 3000; // importante
+const PORT = process.env.PORT || 3000;
 
-// Middlewares
+// ✅ Middlewares
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-// ✅ Crear tablas al iniciar
+// ✅ CREAR TABLAS
 await crearTablas();
 
-// Rutas
+// ✅ SERVIR TICKETS (CORRECTO 🔥)
+app.use('/tickets', express.static(path.join(__dirname, 'tickets')));
+
+// ✅ RUTAS
 app.use('/api/productos', productosRoutes);
 app.use('/api/mesas', mesasRoutes);
 app.use('/api/pedidos', pedidosRouter);
@@ -39,21 +46,31 @@ app.use('/api/gastos', gastosRoutes);
 app.use('/api/cierre', cierreRoutes);
 app.use('/api/ventas', ventasRoutes);
 
-// ✅ Servir tickets PDF
-app.use('/tickets', express.static(path.resolve('storage/tickets')));
-
-// Ruta test
+// ✅ HEALTH
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date() });
 });
 
-// Error global
+// ✅ ERROR GLOBAL
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 
-// START SERVER
-app.listen(PORT, () => {
+// ✅ START SERVER
+const server = app.listen(PORT);
+
+server.once('listening', () => {
   console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
+  console.log('   Dejá esta terminal abierta. Ctrl+C para detener.');
+});
+
+server.on('error', (err) => {
+  console.error('❌ No se pudo abrir el puerto:', err.message);
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      `   El puerto ${PORT} ya está en uso (¿otro npm run dev?). Cerrá esa ventana o en server/.env definí PORT=3001`
+    );
+  }
+  process.exit(1);
 });

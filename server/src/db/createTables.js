@@ -75,6 +75,12 @@ export async function crearTablas() {
     );
   `);
 
+  const pedidoCols = db.prepare(`PRAGMA table_info(pedidos)`).all();
+  const tieneMetodo = pedidoCols.some((c) => c.name === 'metodo_pago');
+  if (!tieneMetodo) {
+    db.exec(`ALTER TABLE pedidos ADD COLUMN metodo_pago TEXT`);
+  }
+
   // ✅ tabla punto de venta
   await crearTablaPuntosVenta();
 

@@ -1,30 +1,28 @@
 import { Router } from 'express';
-import { refacturarPedido } from '../controllers/pedidoController.js';
-import { agregarProducto } from '../controllers/pedidoController.js';
+
 import {
-  getPedidos,
-  getPedidoById,
   getPedidoActivoPorMesa,
   crearPedido,
-  actualizarPedido,
-  eliminarPedido,
-  eliminarProducto,
-  cerrarPedido
+  agregarProducto,
+  cerrarPedido,
+  preferenciaMercadoPago,
 } from '../controllers/pedidoController.js';
 
 const router = Router();
 
-router.get('/', getPedidos);
-router.get('/:id', getPedidoById);
+// ✅ pedido por mesa
 router.get('/mesa/:mesaId', getPedidoActivoPorMesa);
+
+// ✅ crear pedido
 router.post('/', crearPedido);
-router.put('/:id', actualizarPedido);
-router.delete('/:id', eliminarPedido);
+
+// ✅ Mercado Pago — link para QR (Checkout Pro)
+router.post('/:id/preferencia-mp', preferenciaMercadoPago);
+
+// ✅ agregar producto
 router.post('/:id/agregarProducto', agregarProducto);
-router.delete('/detalle/:detalleId', eliminarProducto);
+
+// ✅ cerrar pedido
 router.post('/:id/cerrar', cerrarPedido);
-router.post('/:id/refacturar', refacturarPedido);
-router.get('/mesa/:mesaId', getPedidoActivoPorMesa);
-router.get('/:id', getPedidoById);
 
 export default router;

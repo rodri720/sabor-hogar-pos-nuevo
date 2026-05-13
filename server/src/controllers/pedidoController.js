@@ -1,7 +1,16 @@
-// server/src/controllers/pedidoController.js
 import db from '../db/pool.js';
 import { crearFacturaAFIP } from '../services/arcaService.js';
-import { generarTicket } from '../services/pdfService.js' 
+import { generarTicket } from '../services/pdfService.js';
+import { crearPreferenciaCobro } from '../services/mpPreferenceService.js';
+
+const METODOS_PAGO = new Set([
+  'efectivo',
+  'debito',
+  'tarjeta',
+  'transferencia',
+  'qr',
+]);
+
 const calcularTotales = (detalles) => {
   const total = detalles.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
   const neto = parseFloat((total / 1.21).toFixed(2));
@@ -9,46 +18,99 @@ const calcularTotales = (detalles) => {
   return { total, neto, iva };
 };
 
-// ========== FUNCIONES EXISTENTES ADAPTADAS ==========
-
-export const getPedidoActivoPorMesa = async (req, res) => {
+// ====================== PEDIDO ACTIVO ======================
+export const getPedidoActivoPorMesa = (req, res) => {
   const { mesaId } = req.params;
+
+  console.log("📥 getPedidoActivoPorMesa:", mesaId);
+
   try {
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE mesa_id = ? AND estado = ?').get(mesaId, 'abierto');
+    const pedido = db.prepare(`
+      SELECT * FROM pedidos 
+      WHERE mesa_id = ? AND estado = 'abierto'
+    `).get(mesaId);
+
     if (!pedido) {
+      console.log("❌ No hay pedido activo para mesa", mesaId);
       return res.json(null);
     }
+
     const detalles = db.prepare(`
-      SELECT pd.*, p.nombre, p.precio as precio_actual
+      SELECT pd.*, p.nombre
       FROM pedido_detalle pd
       JOIN productos p ON pd.producto_id = p.id
       WHERE pd.pedido_id = ?
     `).all(pedido.id);
+
+    console.log("✅ Pedido activo encontrado:", pedido.id);
+
     res.json({ ...pedido, detalles });
+
   } catch (error) {
+    console.error("🔥 ERROR getPedidoActivoPorMesa:", error);
     res.status(500).json({ error: error.message });
   }
 };
 
-export const crearPedido = async (req, res) => {
+// ====================== CREAR PEDIDO ======================
+export const crearPedido = (req, res) => {
   const { mesa_id } = req.body;
-  try {
-    const updateMesa = db.prepare('UPDATE mesas SET estado = ? WHERE id = ?');
-    updateMesa.run('ocupada', mesa_id);
 
-    const insertPedido = db.prepare('INSERT INTO pedidos (mesa_id, estado) VALUES (?, ?) RETURNING *');
-    const pedido = insertPedido.get(mesa_id, 'abierto');
+  console.log("➕ crearPedido para mesa:", mesa_id);
+
+  try {
+    const mesa = db.prepare('SELECT id FROM mesas WHERE id = ?').get(mesa_id);
+    if (!mesa) {
+      return res.status(400).json({
+        error: 'Mesa inexistente. Ejecutá el seed o recreá mesas (el id de mesa debe existir en la base).',
+      });
+    }
+
+    // ✅ siempre crear uno nuevo limpio
+    const pedido = db.prepare(`
+      INSERT INTO pedidos (mesa_id, estado, total)
+      VALUES (?, 'abierto', 0)
+      RETURNING *
+    `).get(mesa_id);
+
+    // ✅ actualizar mesa
+    db.prepare(`
+      UPDATE mesas SET estado = 'ocupada'
+      WHERE id = ?
+    `).run(mesa_id);
+
+    console.log("✅ pedido nuevo creado:", pedido.id);
+
     res.status(201).json(pedido);
+
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: error.message });
   }
 };
 
+// ====================== AGREGAR PRODUCTO ======================
 export const agregarProducto = (req, res) => {
   const { id } = req.params;
   const { producto_id, cantidad } = req.body;
 
+  console.log("🛒 agregarProducto:", {
+    pedidoId: id,
+    producto_id,
+    cantidad
+  });
+
   try {
+    // ✅ 🔥 FIX CLAVE: validar solo existencia (NO estado)
+    const pedido = db.prepare(`
+      SELECT * FROM pedidos WHERE id = ?
+    `).get(id);
+
+    if (!pedido) {
+      console.log("❌ Pedido no existe");
+      return res.status(404).json({ error: 'Pedido no encontrado' });
+    }
+
     const producto = db.prepare(
       'SELECT * FROM productos WHERE id = ?'
     ).get(producto_id);
@@ -57,20 +119,22 @@ export const agregarProducto = (req, res) => {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
 
-    const precio_unitario = Number(producto.precio);
-    const subtotal = precio_unitario * cantidad;
+    const precio = Number(producto.precio);
+    const subtotal = precio * cantidad;
 
     db.prepare(`
       INSERT INTO pedido_detalle
       (pedido_id, producto_id, cantidad, precio_unitario, subtotal)
       VALUES (?, ?, ?, ?, ?)
-    `).run(id, producto_id, cantidad, precio_unitario, subtotal);
+    `).run(id, producto_id, cantidad, precio, subtotal);
 
     db.prepare(`
       UPDATE pedidos
-      SET total = COALESCE(total, 0) + ?
+      SET total = total + ?
       WHERE id = ?
     `).run(subtotal, id);
+
+    console.log("✅ Producto agregado correctamente");
 
     res.json({
       message: 'Producto agregado',
@@ -78,290 +142,174 @@ export const agregarProducto = (req, res) => {
     });
 
   } catch (error) {
-    console.error("🔥 ERROR agregarProducto:");
-    console.error(error);
-
-    res.status(500).json({
-      error: error.message
-    });
-  }
-};
-
-export const eliminarProducto = async (req, res) => {
-  const { detalleId } = req.params;
-  const transaction = db.transaction(() => {
-    const detalle = db.prepare('SELECT pedido_id, subtotal FROM pedido_detalle WHERE id = ?').get(detalleId);
-    if (!detalle) throw new Error('Detalle no encontrado');
-    const { pedido_id, subtotal } = detalle;
-
-    db.prepare('DELETE FROM pedido_detalle WHERE id = ?').run(detalleId);
-    db.prepare('UPDATE pedidos SET total = COALESCE(total, 0) - ? WHERE id = ?').run(subtotal, pedido_id);
-  });
-
-  try {
-    transaction();
-    res.status(204).send();
-  } catch (error) {
+    console.error("🔥 ERROR agregarProducto:", error);
     res.status(500).json({ error: error.message });
   }
 };
 
-
-
-
-
-export const cerrarPedido = async (req, res) => {
+// ====================== PREFERENCIA MERCADO PAGO (QR / link) ======================
+export const preferenciaMercadoPago = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(id);
+    const pedido = db
+      .prepare(`SELECT * FROM pedidos WHERE id = ? AND estado = 'abierto'`)
+      .get(id);
+
+    if (!pedido) {
+      return res.status(404).json({ error: 'Pedido abierto no encontrado' });
+    }
+
+    const detalles = db
+      .prepare(`
+      SELECT pd.subtotal
+      FROM pedido_detalle pd
+      WHERE pd.pedido_id = ?
+    `)
+      .all(id);
+
+    if (detalles.length === 0) {
+      return res.status(400).json({ error: 'Sin productos' });
+    }
+
+    const { total } = calcularTotales(detalles);
+
+    const pref = await crearPreferenciaCobro({
+      pedidoId: id,
+      monto: total,
+      titulo: `Sabor Hogar — Pedido #${id}`,
+    });
+
+    if (!pref) {
+      return res.status(503).json({
+        configured: false,
+        error:
+          'Mercado Pago no configurado. Agregá MERCADOPAGO_ACCESS_TOKEN en server/.env',
+      });
+    }
+
+    res.json({ configured: true, ...pref });
+  } catch (error) {
+    console.error('🔥 ERROR preferenciaMercadoPago:', error);
+    res.status(500).json({ error: error.message || 'Error Mercado Pago' });
+  }
+};
+
+// ====================== CERRAR PEDIDO ======================
+export const cerrarPedido = async (req, res) => {
+  const { id } = req.params;
+  const metodoRaw = req.body?.metodo_pago;
+  const metodo_pago = METODOS_PAGO.has(metodoRaw) ? metodoRaw : 'efectivo';
+
+  console.log('💰 cerrarPedido ID:', id, 'metodo:', metodo_pago);
+
+  try {
+    const pedido = db.prepare(`
+      SELECT * FROM pedidos WHERE id = ?
+    `).get(id);
+
+    console.log('📄 Pedido encontrado:', pedido);
+
     if (!pedido) {
       return res.status(404).json({ error: 'Pedido no encontrado' });
     }
 
     if (pedido.estado !== 'abierto') {
-      return res.status(400).json({ error: 'El pedido ya está cerrado' });
+      console.log('⚠ Pedido no está abierto:', pedido.estado);
+      return res.status(400).json({ error: 'Pedido ya cerrado' });
     }
 
     const detalles = db
-      .prepare('SELECT subtotal FROM pedido_detalle WHERE pedido_id = ?')
+      .prepare(`
+      SELECT pd.*, p.nombre
+      FROM pedido_detalle pd
+      JOIN productos p ON pd.producto_id = p.id
+      WHERE pd.pedido_id = ?
+    `)
       .all(id);
 
+    console.log('📦 Detalles:', detalles);
+
     if (detalles.length === 0) {
-      return res.status(400).json({ error: 'El pedido no tiene detalles' });
+      return res.status(400).json({ error: 'Sin productos' });
     }
 
     const { total, neto, iva } = calcularTotales(detalles);
 
-    // 1️⃣ PASO: marcar como pendiente
-    db.prepare(`
-      UPDATE pedidos 
-      SET estado = ?
-      WHERE id = ?
-    `).run('pendiente_factura', id);
+    console.log('💵 Totales:', { total, neto, iva });
 
-    let factura;
+    db.transaction(() => {
+      db.prepare(`
+        UPDATE pedidos 
+        SET estado = 'cerrado', total = ?, metodo_pago = ?
+        WHERE id = ?
+      `).run(total, metodo_pago, id);
+
+      const info = db
+        .prepare(`
+        UPDATE mesas 
+        SET estado = 'libre'
+        WHERE id = ?
+      `)
+        .run(pedido.mesa_id);
+
+      if (info.changes === 0) {
+        throw new Error('No se encontró la mesa para liberar');
+      }
+    })();
+
+    console.log('✅ Pedido cerrado y mesa liberada:', pedido.mesa_id);
+
+    let factura = null;
+    let ticket = null;
+    let numeroFactura = null;
 
     try {
-      // 2️⃣ Facturar en AFIP
-      factura = factura = await crearFacturaAFIP({
+      factura = await crearFacturaAFIP({
         total,
         neto,
         iva,
         puntoDeVenta: Number(process.env.ARCA_PTO_VTA || 1),
       });
-    } catch (afipError) {
-      console.error('Error AFIP:', afipError);
 
-      return res.status(500).json({
-        error: 'Error al facturar en AFIP',
-        detalle: afipError.message,
-        pedidoEstado: 'pendiente_factura',
-      });
+      numeroFactura = factura?.numeroFactura ?? null;
+
+      ticket = generarTicket(
+        { ...pedido, total, metodo_pago },
+        detalles,
+        factura
+      );
+
+      console.log('✅ Factura generada:', numeroFactura);
+    } catch (err) {
+      console.log('⚠ Error AFIP/PDF:', err.message);
     }
 
-    // ✅ obtener detalles con nombre para el ticket
-    const detallesConNombre = db.prepare(`
-      SELECT pd.*, p.nombre
-      FROM pedido_detalle pd
-      JOIN productos p ON pd.producto_id = p.id
-      WHERE pd.pedido_id = ?
-    `).all(id);
-
-    // ✅ generar ticket PDF
-    const filePath = generarTicket(
-      { ...pedido, total },
-      detallesConNombre,
-      factura
-    );
-
-    // 3️⃣ Transacción final
-    const transaction = db.transaction(() => {
+    try {
       db.prepare(`
-        UPDATE pedidos
-        SET estado = ?,
-            total = ?,
-            factura_numero = ?,
-            cae = ?,
-            cae_vto = ?
-        WHERE id = ?
+        INSERT INTO ventas (numero_factura, total, metodo_pago, fecha, mesa_id, estado)
+        VALUES (?, ?, ?, ?, ?, 'cerrado')
       `).run(
-        'cerrado',
+        numeroFactura,
         total,
-        factura.numeroFactura,
-        factura.cae,
-        factura.vencimientoCAE,
-        id
+        metodo_pago,
+        new Date().toISOString(),
+        pedido.mesa_id
       );
-
-      db.prepare(`
-        UPDATE mesas 
-        SET estado = ? 
-        WHERE id = ?
-      `).run('libre', pedido.mesa_id);
-    });
-
-    transaction();
+    } catch (e) {
+      console.warn('⚠ No se pudo registrar venta:', e.message);
+    }
 
     res.json({
-      message: 'Pedido cerrado, facturado y ticket generado',
+      message: 'Pedido cerrado',
+      metodo_pago,
       factura,
-      ticket: `/tickets/factura-${factura.numeroFactura}.pdf`
+      ticket: ticket && factura
+        ? `/tickets/factura-${factura.numeroFactura}.pdf`
+        : null,
     });
-
   } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      error: error.message,
-    });
-  }
-};
-
-
-export const refacturarPedido = async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(id);
-
-    if (!pedido) {
-      return res.status(404).json({ error: 'Pedido no encontrado' });
-    }
-
-    if (pedido.estado !== 'pendiente_factura') {
-      return res.status(400).json({
-        error: 'Este pedido no requiere refacturación'
-      });
-    }
-
-    const detalles = db
-      .prepare('SELECT subtotal FROM pedido_detalle WHERE pedido_id = ?')
-      .all(id);
-
-    if (!detalles || detalles.length === 0) {
-      return res.status(400).json({ error: 'Sin detalles en el pedido' });
-    }
-
-    const total = detalles.reduce((sum, d) => sum + Number(d.subtotal), 0);
-    const neto = Number((total / 1.21).toFixed(2));
-    const iva = Number((total - neto).toFixed(2));
-
-    // ✅ FACTURA MOCK
-    const factura = {
-      numeroFactura: Math.floor(Math.random() * 10000),
-      cae: 'TEST-CAE-123456',
-      vencimientoCAE: new Date().toISOString().slice(0, 10),
-    };
-
-    const transaction = db.transaction(() => {
-      db.prepare(`
-        UPDATE pedidos
-        SET estado = ?,
-            factura_numero = ?,
-            cae = ?,
-            cae_vto = ?
-        WHERE id = ?
-      `).run(
-        'cerrado',
-        factura.numeroFactura,
-        factura.cae,
-        factura.vencimientoCAE,
-        id
-      );
-    });
-
-    transaction();
-
-    res.json({
-      message: 'Pedido refacturado correctamente',
-      factura
-    });
-
-  } catch (error) {
-  console.error("🔥 ERROR REFAC:");
-  console.error(error);
-
-  res.status(500).json({
-    error: error.message,
-    stack: error.stack
-  });
-}
-  
-};
-// ========== NUEVAS FUNCIONES PARA CRUD COMPLETO ==========
-
-export const getPedidos = async (req, res) => {
-  try {
-    const { estado } = req.query;
-    let sql = 'SELECT * FROM pedidos';
-    const params = [];
-    if (estado) {
-      sql += ' WHERE estado = ?';
-      params.push(estado);
-    }
-    sql += ' ORDER BY id DESC';
-    const stmt = db.prepare(sql);
-    const pedidos = stmt.all(...params);
-    res.json(pedidos);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-export const getPedidoById = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(id);
-    if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
-    const detalles = db.prepare(`
-      SELECT pd.*, p.nombre, p.precio as precio_actual
-      FROM pedido_detalle pd
-      JOIN productos p ON pd.producto_id = p.id
-      WHERE pd.pedido_id = ?
-    `).all(id);
-    res.json({ ...pedido, detalles });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-export const actualizarPedido = async (req, res) => {
-  const { id } = req.params;
-  const { estado, comentarios } = req.body;
-  try {
-    const result = db.prepare(`
-      UPDATE pedidos
-      SET estado = COALESCE(?, estado),
-          comentarios = COALESCE(?, comentarios)
-      WHERE id = ?
-      RETURNING *
-    `).get(estado, comentarios, id);
-    if (!result) return res.status(404).json({ error: 'Pedido no encontrado' });
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-export const eliminarPedido = async (req, res) => {
-  const { id } = req.params;
-  const transaction = db.transaction(() => {
-    const pedido = db.prepare('SELECT mesa_id, estado FROM pedidos WHERE id = ?').get(id);
-    if (!pedido) throw new Error('Pedido no encontrado');
-    const { mesa_id, estado } = pedido;
-
-    db.prepare('DELETE FROM pedido_detalle WHERE pedido_id = ?').run(id);
-    db.prepare('DELETE FROM pedidos WHERE id = ?').run(id);
-    if (estado === 'abierto' && mesa_id) {
-      db.prepare('UPDATE mesas SET estado = ? WHERE id = ?').run('libre', mesa_id);
-    }
-  });
-
-  try {
-    transaction();
-    res.status(204).send();
-  } catch (error) {
+    console.error('🔥 ERROR cerrarPedido:', error);
     res.status(500).json({ error: error.message });
   }
 };
