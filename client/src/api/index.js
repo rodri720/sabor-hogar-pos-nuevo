@@ -1,9 +1,23 @@
 import { productosMock, combosMock, mesasMock, mozosMock, insumosMock, gastosMock, ventasStorage, nextVentaId as nextId } from '../mocks.js';
 
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+async function fetchApiList(path) {
+  const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `${res.status} ${path}`);
+  }
+  const data = await res.json();
+  return { data: Array.isArray(data) ? data : [] };
+}
+
+// Mesas y productos del panel: datos reales del servidor (SQLite)
+export const getMesas = () => fetchApiList('/api/mesas');
+export const getProductos = () => fetchApiList('/api/productos');
+
 // ========== Funciones existentes (mantenidas) ==========
-export const getMesas = () => Promise.resolve({ data: mesasMock });
 export const getMozos = () => Promise.resolve({ data: mozosMock });
-export const getProductos = () => Promise.resolve({ data: productosMock });
 export const getCombos = () => Promise.resolve({ data: combosMock });
 
 let ventas = ventasStorage;
@@ -76,7 +90,7 @@ export const getResumenDia = (fecha) => {
   const gastosTarde = gastosMock.filter(g => g.fecha === fecha && g.turno === 'tarde');
   
   const calcularResumenTurno = (ventasTurno, gastosTurno) => {
-    const porMetodo = { efectivo: 0, qr: 0, transferencia: 0, debito: 0 };
+    const porMetodo = { efectivo: 0, qr: 0, transferencia: 0, debito: 0, tarjeta: 0 };
     ventasTurno.forEach(v => {
       if (porMetodo[v.metodo_pago] !== undefined) 
         porMetodo[v.metodo_pago] += v.total;

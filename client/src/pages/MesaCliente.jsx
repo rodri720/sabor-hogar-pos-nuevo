@@ -1,30 +1,66 @@
 import { useParams } from 'react-router-dom';
 import { Container, Card, Button, Alert, Spinner } from 'react-bootstrap';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+
+const API = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export default function MesaCliente() {
-  const { id } = useParams();
+  const { numero } = useParams();
+  const mesaNumero = Number(numero);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [mensaje, setMensaje] = useState(null);
+  const [pedidoId, setPedidoId] = useState(null);
+  const [mesaId, setMesaId] = useState(null);
 
-  // ✅ verificar .env
-  const baseURL = import.meta.env.VITE_API_URL;
+  const resolverMesaYPedido = useCallback(async () => {
+    setError(null);
+    if (!Number.isFinite(mesaNumero) || mesaNumero < 1) {
+      setError('Número de mesa inválido');
+      return;
+    }
 
-  console.log("API URL:", baseURL);
+    const mesasRes = await fetch(`${API}/api/mesas`);
+    if (!mesasRes.ok) {
+      setError('No se pudieron cargar las mesas');
+      return;
+    }
+
+    const mesas = await mesasRes.json();
+    const mesa = mesas.find((m) => m.numero === mesaNumero);
+    if (!mesa) {
+      setError(`No existe la mesa ${mesaNumero} en el sistema`);
+      setMesaId(null);
+      setPedidoId(null);
+      return;
+    }
+
+    setMesaId(mesa.id);
+
+    const pedidoRes = await fetch(`${API}/api/pedidos/mesa/${mesa.id}`);
+    const pedido = await pedidoRes.json();
+    setPedidoId(pedido?.id ?? null);
+  }, [mesaNumero]);
+
+  useEffect(() => {
+    resolverMesaYPedido();
+  }, [resolverMesaYPedido]);
 
   const cerrarPedido = async () => {
     try {
-      console.log("CLICK cerrar pedido ✅");
-
       setLoading(true);
       setError(null);
       setMensaje(null);
 
-      // ✅ fetch correcto
-      const response = await fetch(`${baseURL}/api/pedidos/${id}/cerrar`, {
-        method: 'POST'
+      if (!pedidoId) {
+        throw new Error('No hay un pedido abierto para esta mesa');
+      }
+
+      const response = await fetch(`${API}/api/pedidos/${pedidoId}/cerrar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metodo_pago: 'efectivo' }),
       });
 
       const data = await response.json();
@@ -33,15 +69,14 @@ export default function MesaCliente() {
         throw new Error(data.error || 'Error al cerrar pedido');
       }
 
-      // ✅ abrir ticket automáticamente
       if (data.ticket) {
-        window.open(`${baseURL}${data.ticket}`, '_blank');
+        window.open(`${API}${data.ticket}`, '_blank');
       }
 
-      setMensaje('✅ Pedido cerrado y facturado correctamente');
-
+      setMensaje('Pedido cerrado y factura generada correctamente');
+      await resolverMesaYPedido();
     } catch (err) {
-      console.error("ERROR:", err);
+      console.error('ERROR:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -52,11 +87,24 @@ export default function MesaCliente() {
     <Container className="mt-4">
       <Card>
         <Card.Body>
-          <h1>Menú - Mesa {id}</h1>
+          <h1>Menú — Mesa {mesaNumero}</h1>
 
-          <p>
-            Desde aquí podés cerrar el pedido y generar la factura.
+          <p className="text-muted">
+            Desde aquí podés cerrar el pedido activo de esta mesa y generar el comprobante.
           </p>
+
+          {mesaId != null && (
+            <p>
+              <small>
+                Pedido activo:{' '}
+                {pedidoId ? (
+                  <strong>#{pedidoId}</strong>
+                ) : (
+                  <span className="text-warning">ninguno (cobrá desde el panel o abrí la mesa en el dashboard)</span>
+                )}
+              </small>
+            </p>
+          )}
 
           {error && <Alert variant="danger">{error}</Alert>}
           {mensaje && <Alert variant="success">{mensaje}</Alert>}
@@ -65,14 +113,14 @@ export default function MesaCliente() {
             <Button
               variant="success"
               onClick={cerrarPedido}
-              disabled={loading}
+              disabled={loading || !pedidoId}
             >
               {loading ? (
                 <>
                   <Spinner size="sm" /> Procesando...
                 </>
               ) : (
-                'Cerrar y Facturar'
+                'Cerrar y facturar'
               )}
             </Button>
           </div>

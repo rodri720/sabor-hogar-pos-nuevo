@@ -1,0 +1,74 @@
+/* Sala / POS — tema cálido bar */
+.dashboard-pos {
+  min-height: calc(100vh - 56px);
+  background: linear-gradient(165deg, #1a1512 0%, #2d2419 40%, #1f1a16 100%);
+  color: #f5ebe0;
+}
+
+.dashboard-pos .mesa-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+
+.dashboard-pos .mesa-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.dashboard-pos .mesa-card.active {
+  border-color: #e8a54b;
+  box-shadow: 0 0 0 2px rgba(232, 165, 75, 0.35);
+}
+
+.dashboard-pos .mesa-card.ocupada {
+  border-left: 4px solid #c94c4c;
+}
+
+.dashboard-pos .mesa-card.libre {
+  border-left: 4px solid #5a9e6f;
+}
+
+.dashboard-pos .panel-dark {
+  background: rgba(30, 26, 22, 0.92);
+  border: 1px solid rgba(232, 165, 75, 0.15);
+  border-radius: 12px;
+}
+
+.dashboard-pos .producto-btn {
+  min-height: 72px;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  border: none;
+  background: linear-gradient(145deg, #c9782e 0%, #a85f1f 100%);
+  color: #fff;
+  transition: filter 0.12s ease, transform 0.12s ease;
+}
+
+.dashboard-pos .producto-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: scale(1.02);
+}
+
+.dashboard-pos .producto-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.dashboard-pos .scroll-panel {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+
+.dashboard-pos .categoria-titulo {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #c4a882;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.dashboard-pos .categoria-titulo:first-child {
+  margin-top: 0;
+}

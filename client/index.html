@@ -1,13 +1,66 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>client</title>
+
+    <title>Sabor Hogar POS</title>
+
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f4f6f9;
+      }
+
+      header {
+        background: #1c1c1c;
+        color: white;
+        padding: 15px 20px;
+        font-size: 20px;
+        font-weight: bold;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      header span {
+        font-size: 14px;
+        opacity: 0.7;
+      }
+
+      footer {
+        position: fixed;
+        bottom: 0;
+        width: 100%;
+        background: #1c1c1c;
+        color: white;
+        text-align: center;
+        padding: 8px;
+        font-size: 12px;
+      }
+    </style>
   </head>
+
   <body>
+
+    <!-- ✅ HEADER PRO -->
+    <header>
+      🍽 Sabor Hogar POS
+      <span>Sistema de gestión</span>
+    </header>
+
+    <!-- ✅ APP REACT -->
     <div id="root"></div>
+
+    <!-- ✅ FOOTER -->
+    <footer>
+      © 2026 Sabor Hogar · POS System
+    </footer>
+
+    <!-- ✅ IMPORTANTE (NO TOCAR) -->
     <script type="module" src="/src/main.jsx"></script>
+
   </body>
 </html>

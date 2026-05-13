@@ -46,6 +46,7 @@ export default function Reportes() {
               <li>QR: {formatearMoneda(reporte.mañana.porMetodo.qr)}</li>
               <li>Transferencia: {formatearMoneda(reporte.mañana.porMetodo.transferencia)}</li>
               <li>Débito: {formatearMoneda(reporte.mañana.porMetodo.debito)}</li>
+              <li>Tarjeta: {formatearMoneda(reporte.mañana.porMetodo.tarjeta ?? 0)}</li>
             </ul>
           </div>
 
@@ -61,6 +62,7 @@ export default function Reportes() {
               <li>QR: {formatearMoneda(reporte.tarde.porMetodo.qr)}</li>
               <li>Transferencia: {formatearMoneda(reporte.tarde.porMetodo.transferencia)}</li>
               <li>Débito: {formatearMoneda(reporte.tarde.porMetodo.debito)}</li>
+              <li>Tarjeta: {formatearMoneda(reporte.tarde.porMetodo.tarjeta ?? 0)}</li>
             </ul>
           </div>
 
