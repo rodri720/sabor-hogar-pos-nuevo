@@ -1,10 +1,10 @@
 import db from '../db/pool.js';
 
-export const getMozos = async (req, res) => {
+export const getMozos = (req, res) => {
   try {
-    const result = db.prepare('SELECT id, nombre, codigo FROM mozos WHERE activo = 1 ORDER BY codigo').all();
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    const mozos = db.prepare('SELECT id, nombre FROM mozos WHERE activo = 1 ORDER BY nombre').all();
+    res.json(mozos);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 };

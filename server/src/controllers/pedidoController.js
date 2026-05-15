@@ -53,38 +53,36 @@ export const getPedidoActivoPorMesa = (req, res) => {
 };
 
 // ====================== CREAR PEDIDO ======================
+// ====================== CREAR PEDIDO ======================
 export const crearPedido = (req, res) => {
-  const { mesa_id } = req.body;
+  const { mesa_id, mozo } = req.body; // ← atención: mozo, no mozo_id
 
-  console.log("➕ crearPedido para mesa:", mesa_id);
+  console.log("➕ crearPedido:", { mesa_id, mozo });
 
   try {
-    const mesa = db.prepare('SELECT id FROM mesas WHERE id = ?').get(mesa_id);
-    if (!mesa) {
+    if (!mozo) {
       return res.status(400).json({
-        error: 'Mesa inexistente. Ejecutá el seed o recreá mesas (el id de mesa debe existir en la base).',
+        error: "Debes seleccionar un mozo antes de abrir la mesa"
       });
     }
 
-    // ✅ siempre crear uno nuevo limpio
+    const mesa = db.prepare('SELECT id FROM mesas WHERE id = ?').get(mesa_id);
+    if (!mesa) {
+      return res.status(400).json({ error: "Mesa inexistente" });
+    }
+
     const pedido = db.prepare(`
-      INSERT INTO pedidos (mesa_id, estado, total)
-      VALUES (?, 'abierto', 0)
+      INSERT INTO pedidos (mesa_id, estado, total, mozo)
+      VALUES (?, 'abierto', 0, ?)
       RETURNING *
-    `).get(mesa_id);
+    `).get(mesa_id, mozo);
 
-    // ✅ actualizar mesa
-    db.prepare(`
-      UPDATE mesas SET estado = 'ocupada'
-      WHERE id = ?
-    `).run(mesa_id);
+    db.prepare(`UPDATE mesas SET estado = 'ocupada' WHERE id = ?`).run(mesa_id);
 
-    console.log("✅ pedido nuevo creado:", pedido.id);
-
+    console.log("✅ pedido creado con mozo:", pedido);
     res.status(201).json(pedido);
-
   } catch (error) {
-    console.error(error);
+    console.error("🔥 ERROR crearPedido:", error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -274,11 +272,11 @@ export const cerrarPedido = async (req, res) => {
 
       numeroFactura = factura?.numeroFactura ?? null;
 
-      ticket = generarTicket(
-        { ...pedido, total, metodo_pago },
-        detalles,
-        factura
-      );
+     ticket = await generarTicket(
+  { ...pedido, total, metodo_pago },
+  detalles,
+  factura
+);
 
       console.log('✅ Factura generada:', numeroFactura);
     } catch (err) {

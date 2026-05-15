@@ -74,3 +74,5 @@ server.on('error', (err) => {
   }
   process.exit(1);
 });
+
+// En tu archivo principal (ej. server.js o routes/mozos.js)

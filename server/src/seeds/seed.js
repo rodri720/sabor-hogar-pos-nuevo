@@ -7,10 +7,24 @@ db.exec(`
     (3, 'libre'),
     (4, 'libre'),
     (5, 'libre');
+    (6, 'libre');
+    (7, 'libre');
+    (8, 'libre');
+    (9, 'libre');
+    (10, 'libre');
+    (11, 'libre');
+    (12, 'libre');
+    (13, 'libre');
+    (14, 'libre');
+    (15, 'libre');
 
   INSERT OR IGNORE INTO mozos (nombre, codigo) VALUES
-    ('Juan', '001'),
-    ('Ana', '002');
+    ('Mozo', '001'),
+    ('Mozo', '002');
+    ('Mozo', '003');
+    ('Mozo', '004');
+    ('Mozo', '005');
+
 `);
 
 const productosBar = [

@@ -25,6 +25,7 @@ export async function crearTablas() {
       factura_numero INTEGER,
       cae TEXT,
       cae_vto TEXT
+      -- La columna mozo se agregará con ALTER después
     );
 
     CREATE TABLE IF NOT EXISTS pedido_detalle (
@@ -75,13 +76,21 @@ export async function crearTablas() {
     );
   `);
 
+  // Agregar columna metodo_pago si no existe
   const pedidoCols = db.prepare(`PRAGMA table_info(pedidos)`).all();
   const tieneMetodo = pedidoCols.some((c) => c.name === 'metodo_pago');
   if (!tieneMetodo) {
     db.exec(`ALTER TABLE pedidos ADD COLUMN metodo_pago TEXT`);
   }
 
-  // ✅ tabla punto de venta
+  // Agregar columna mozo si no existe
+  const tieneMozo = pedidoCols.some((c) => c.name === 'mozo');
+  if (!tieneMozo) {
+    db.exec(`ALTER TABLE pedidos ADD COLUMN mozo INTEGER`);
+    console.log('✅ Columna "mozo" agregada a pedidos');
+  }
+
+  // tabla punto de venta
   await crearTablaPuntosVenta();
 
   console.log('✅ Tablas creadas correctamente');
