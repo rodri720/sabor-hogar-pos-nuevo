@@ -37,12 +37,35 @@ export default function Dashboard() {
   const [mpPaymentUrl, setMpPaymentUrl] = useState(null);
   const [mpLoading, setMpLoading] = useState(false);
 
+  // Estados para el mozo
+  const [mozos, setMozos] = useState([]);
+  const [showMozoModal, setShowMozoModal] = useState(false);
+  const [selectedMozoId, setSelectedMozoId] = useState("");
+  const [pendingMesa, setPendingMesa] = useState(null);
+  const [loadingMozos, setLoadingMozos] = useState(false);
+
   useEffect(() => {
     cargarMesas();
     getProductos()
       .then((r) => setProductos(r.data))
       .catch((e) => console.error("Productos:", e));
+    cargarMozos();
   }, []);
+
+  const cargarMozos = async () => {
+    setLoadingMozos(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/mozos`);
+      if (!res.ok) throw new Error("Error al cargar mozos");
+      const data = await res.json();
+      setMozos(data);
+    } catch (error) {
+      console.error("Error cargando mozos:", error);
+      setMozos([]);
+    } finally {
+      setLoadingMozos(false);
+    }
+  };
 
   const cargarMesas = async () => {
     try {
@@ -79,6 +102,36 @@ export default function Dashboard() {
     return null;
   };
 
+const crearPedidoConMozo = async (mozoId) => {
+  if (!pendingMesa) return;
+  setBusy(true);
+  try {
+    const res = await fetch(`${API_BASE}/api/pedidos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        mesa_id: pendingMesa.id, 
+        mozo: mozoId   // ← cambiamos de mozo_id a mozo
+      }),
+    });
+    const nuevo = await res.json();
+    if (!res.ok) {
+      alert(nuevo.error || nuevo.message || `Error ${res.status}`);
+      setPendingMesa(null);
+      setMesaActiva(null);
+      await cargarMesas();
+      return;
+    }
+    await cargarPedido(pendingMesa);
+    await cargarMesas();
+    setShowMozoModal(false);
+    setSelectedMozoId("");
+    setPendingMesa(null);
+  } finally {
+    setBusy(false);
+  }
+};
+
   const seleccionarMesa = async (m) => {
     setBusy(true);
     try {
@@ -86,24 +139,13 @@ export default function Dashboard() {
       let id = await cargarPedido(m);
 
       if (!id) {
-        const res = await fetch(`${API_BASE}/api/pedidos`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mesa_id: m.id }),
-        });
-
-        const nuevo = await res.json();
-        if (!res.ok) {
-          alert(nuevo.error || nuevo.message || `Error ${res.status}`);
-          setPedidoId(null);
-          setPedido(null);
-          await cargarMesas();
-          return;
-        }
-
-        await cargarPedido(m);
+        // No hay pedido abierto → pedir mozo
+        setPendingMesa(m);
+        setSelectedMozoId("");
+        setShowMozoModal(true);
+        return;
       }
-
+      // Ya tiene pedido, solo refrescamos mesas
       await cargarMesas();
     } finally {
       setBusy(false);
@@ -268,6 +310,12 @@ export default function Dashboard() {
     return orden.map((c) => [c, map[c]]);
   }, [productos]);
 
+  const nombreMozoActual = useMemo(() => {
+    if (!pedido?.mozo_id) return null;
+    const mozo = mozos.find((m) => m.id === pedido.mozo_id);
+    return mozo ? mozo.nombre : `Mozo ID: ${pedido.mozo_id}`;
+  }, [pedido, mozos]);
+
   const sinMesa = !mesaActiva;
 
   return (
@@ -356,6 +404,11 @@ export default function Dashboard() {
                     <Badge bg="secondary">#{pedidoId}</Badge>
                   )}
                 </div>
+                {nombreMozoActual && (
+                  <div className="mt-1 small text-info">
+                    Mozo: {nombreMozoActual}
+                  </div>
+                )}
               </Card.Header>
               <Card.Body>
                 {sinMesa && (
@@ -482,6 +535,75 @@ export default function Dashboard() {
           </Col>
         </Row>
 
+        {/* MODAL PARA SELECCIONAR MOZO */}
+        <Modal
+          show={showMozoModal}
+          onHide={() => {
+            setShowMozoModal(false);
+            setPendingMesa(null);
+            setSelectedMozoId("");
+          }}
+          centered
+          backdrop="static"
+        >
+          <Modal.Header closeButton className="bg-dark text-light border-secondary">
+            <Modal.Title>Asignar mozo a la mesa</Modal.Title>
+          </Modal.Header>
+          <Modal.Body className="bg-dark text-light">
+            {loadingMozos ? (
+              <div className="text-center">
+                <Spinner animation="border" variant="light" />
+                <p className="mt-2">Cargando mozos...</p>
+              </div>
+            ) : mozos.length === 0 ? (
+              <Alert variant="danger">
+                No hay mozos registrados. No se puede abrir la mesa sin asignar un mozo.
+              </Alert>
+            ) : (
+              <>
+                <p className="mb-3">
+                  Seleccioná el mozo que atenderá la <strong>Mesa {pendingMesa?.numero}</strong>:
+                </p>
+                <Form.Group>
+                  {mozos.map((mozo) => (
+                    <Form.Check
+                      key={mozo.id}
+                      type="radio"
+                      id={`mozo-${mozo.id}`}
+                      name="mozoSeleccionado"
+                      label={mozo.nombre}
+                      value={mozo.id}
+                      checked={selectedMozoId === String(mozo.id)}
+                      onChange={(e) => setSelectedMozoId(e.target.value)}
+                      className="mb-2"
+                    />
+                  ))}
+                </Form.Group>
+              </>
+            )}
+          </Modal.Body>
+          <Modal.Footer className="bg-dark border-secondary">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowMozoModal(false);
+                setPendingMesa(null);
+                setSelectedMozoId("");
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => crearPedidoConMozo(selectedMozoId)}
+              disabled={!selectedMozoId || mozos.length === 0 || loadingMozos}
+            >
+              Abrir mesa con este mozo
+            </Button>
+          </Modal.Footer>
+        </Modal>
+
+        {/* MODAL DE COBRO (existente) */}
         <Modal
           show={showCobroModal}
           onHide={cerrarModalCobro}
