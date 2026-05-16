@@ -44,12 +44,17 @@ export default function Dashboard() {
   const [pendingMesa, setPendingMesa] = useState(null);
   const [loadingMozos, setLoadingMozos] = useState(false);
 
+  // Estados para titulares
+  const [titulares, setTitulares] = useState([]);
+  const [titularActivo, setTitularActivo] = useState(null);
+
   useEffect(() => {
     cargarMesas();
     getProductos()
       .then((r) => setProductos(r.data))
       .catch((e) => console.error("Productos:", e));
     cargarMozos();
+    cargarTitulares();
   }, []);
 
   const cargarMozos = async () => {
@@ -64,6 +69,19 @@ export default function Dashboard() {
       setMozos([]);
     } finally {
       setLoadingMozos(false);
+    }
+  };
+
+  const cargarTitulares = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/titulares`);
+      if (!res.ok) throw new Error("Error al cargar titulares");
+      const data = await res.json();
+      setTitulares(data);
+      if (data.length) setTitularActivo(data[0]); // por defecto el primero
+    } catch (error) {
+      console.error("Error cargando titulares:", error);
+      setTitulares([]);
     }
   };
 
@@ -102,35 +120,35 @@ export default function Dashboard() {
     return null;
   };
 
-const crearPedidoConMozo = async (mozoId) => {
-  if (!pendingMesa) return;
-  setBusy(true);
-  try {
-    const res = await fetch(`${API_BASE}/api/pedidos`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        mesa_id: pendingMesa.id, 
-        mozo: mozoId   // ← cambiamos de mozo_id a mozo
-      }),
-    });
-    const nuevo = await res.json();
-    if (!res.ok) {
-      alert(nuevo.error || nuevo.message || `Error ${res.status}`);
-      setPendingMesa(null);
-      setMesaActiva(null);
+  const crearPedidoConMozo = async (mozoId) => {
+    if (!pendingMesa) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/pedidos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          mesa_id: pendingMesa.id, 
+          mozo: mozoId
+        }),
+      });
+      const nuevo = await res.json();
+      if (!res.ok) {
+        alert(nuevo.error || nuevo.message || `Error ${res.status}`);
+        setPendingMesa(null);
+        setMesaActiva(null);
+        await cargarMesas();
+        return;
+      }
+      await cargarPedido(pendingMesa);
       await cargarMesas();
-      return;
+      setShowMozoModal(false);
+      setSelectedMozoId("");
+      setPendingMesa(null);
+    } finally {
+      setBusy(false);
     }
-    await cargarPedido(pendingMesa);
-    await cargarMesas();
-    setShowMozoModal(false);
-    setSelectedMozoId("");
-    setPendingMesa(null);
-  } finally {
-    setBusy(false);
-  }
-};
+  };
 
   const seleccionarMesa = async (m) => {
     setBusy(true);
@@ -264,7 +282,10 @@ const crearPedidoConMozo = async (mozoId) => {
       const res = await fetch(`${API_BASE}/api/pedidos/${pedidoId}/cerrar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ metodo_pago: metodoCobro }),
+        body: JSON.stringify({
+          metodo_pago: metodoCobro,
+          titular_id: titularActivo?.id
+        }),
       });
 
       const data = await res.json();
@@ -329,6 +350,25 @@ const crearPedidoConMozo = async (mozoId) => {
               o cobrar e imprimir ticket.
             </small>
           </Col>
+          
+          {/* Selector de titular activo */}
+          <Col xs="auto">
+            <Form.Select 
+              size="sm" 
+              value={titularActivo?.id || ''}
+              onChange={(e) => {
+                const selected = titulares.find(t => t.id === Number(e.target.value));
+                setTitularActivo(selected);
+              }}
+              style={{ width: '220px' }}
+              className="bg-dark text-light border-secondary"
+            >
+              {titulares.map(t => (
+                <option key={t.id} value={t.id}>{t.nombre}</option>
+              ))}
+            </Form.Select>
+          </Col>
+
           <Col xs="auto">
             <ButtonGroup size="sm">
               <Button
