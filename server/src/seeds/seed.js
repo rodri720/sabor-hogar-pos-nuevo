@@ -1,97 +1,77 @@
 import db from '../db/pool.js';
 
-db.exec(`
-  INSERT OR IGNORE INTO mesas (numero, estado) VALUES
-    (1, 'libre'),
-    (2, 'libre'),
-    (3, 'libre'),
-    (4, 'libre'),
-    (5, 'libre');
-    (6, 'libre');
-    (7, 'libre');
-    (8, 'libre');
-    (9, 'libre');
-    (10, 'libre');
-    (11, 'libre');
-    (12, 'libre');
-    (13, 'libre');
-    (14, 'libre');
-    (15, 'libre');
+try {
+  console.log("🧹 limpiando productos...");
 
-  INSERT OR IGNORE INTO mozos (nombre, codigo) VALUES
-    ('Mozo', '001'),
-    ('Mozo', '002');
-    ('Mozo', '003');
-    ('Mozo', '004');
-    ('Mozo', '005');
+  db.prepare('DELETE FROM productos').run();
 
-`);
+  const insert = db.prepare(
+    'INSERT INTO productos (nombre, precio) VALUES (?, ?)'
+  );
 
-const productosBar = [
-  // Cafetería
-  ['Café espresso', 900, 'Café'],
-  ['Café con leche', 1100, 'Café'],
-  ['Café cortado', 1000, 'Café'],
-  ['Capuchino', 1400, 'Café'],
-  ['Lagrima', 1000, 'Café'],
-  ['Submarino', 1200, 'Café'],
-  ['Café americano', 950, 'Café'],
-  ['Té (varios)', 800, 'Café'],
-  ['Té con leche', 950, 'Café'],
-  // Dulces / panadería
-  ['Medialunas (x3)', 1200, 'Dulces'],
-  ['Croissant', 900, 'Dulces'],
-  ['Tostado jamón y queso', 2800, 'Dulces'],
-  ['Tostado de manteca', 1500, 'Dulces'],
-  ['Torta porción', 2200, 'Dulces'],
-  ['Alfajor artesanal', 800, 'Dulces'],
-  ['Brownie', 1500, 'Dulces'],
-  // Bebidas sin alcohol
-  ['Agua mineral', 800, 'Bebidas'],
-  ['Gaseosa línea', 1000, 'Bebidas'],
-  ['Jugo exprimido naranja', 1800, 'Bebidas'],
-  ['Limonada', 1400, 'Bebidas'],
-  ['Smoothie frutilla', 2200, 'Bebidas'],
-  // Cervezas
-  ['Cerveza rubia pinta', 2800, 'Cervezas'],
-  ['Cerveza IPA pinta', 3200, 'Cervezas'],
-  ['Cerveza negra pinta', 3000, 'Cervezas'],
-  ['Cerveza sin alcohol', 2400, 'Cervezas'],
-  ['Chopp chico', 1800, 'Cervezas'],
-  // Tragos / bar
-  ['Fernet con cola', 2800, 'Bar'],
-  ['Gin tonic', 3500, 'Bar'],
-  ['Mojito', 3200, 'Bar'],
-  ['Caipiroska', 3000, 'Bar'],
-  ['Aperol spritz', 3800, 'Bar'],
-  ['Whisky (doble)', 4500, 'Bar'],
-  ['Campari naranja', 2800, 'Bar'],
-  ['Champagne copa', 4000, 'Bar'],
-  // Comidas
-  ['Picada para 2', 8500, 'Comidas'],
-  ['Picada para 4', 15000, 'Comidas'],
-  ['Papas fritas', 4500, 'Comidas'],
-  ['Rabas fritas', 7200, 'Comidas'],
-  ['Hamburguesa clásica', 6500, 'Comidas'],
-  ['Hamburguesa vegana', 7000, 'Comidas'],
-  ['Milanesa napolitana', 7800, 'Comidas'],
-  ['Ensalada Caesar', 5500, 'Comidas'],
-  ['Sandwich de bondiola', 6200, 'Comidas'],
-  ['Empanadas (docena)', 9000, 'Comidas'],
-  ['Empanadas (media)', 4800, 'Comidas'],
-  ['Pizza muzarella', 11000, 'Comidas'],
-  ['Pizza especial', 13500, 'Comidas'],
-  ['Fainá porción', 1200, 'Comidas'],
-];
+  // Café y varios
+  insert.run('Café Chico', 2700);
+  insert.run('Jarrito', 3500);
+  insert.run('Café Doble', 4500);
+  insert.run('Capuchino Grande', 5000);
+  insert.run('Capuchino Chico', 4000);
+  insert.run('Submarino Grande', 4800);
+  insert.run('Submarino Chico', 4000);
+  insert.run('Alfajor de Maicena', 4000);
+  insert.run('Porción de Torta', 6000);
+  insert.run('Porción de Tarta', 4500);
+  insert.run('Mini Tarta', 6000);
+  insert.run('Budín Mini', 2500);
+  insert.run('Budín', 4000);
 
-const insertProducto = db.prepare(`
-  INSERT INTO productos (nombre, precio, categoria)
-  SELECT ?, ?, ?
-  WHERE NOT EXISTS (SELECT 1 FROM productos WHERE nombre = ?)
-`);
+  // Desayunos y meriendas
+  insert.run('SIMPLE', 6500);
+  insert.run('LIGHT', 9500);
+  insert.run('COMPLETO', 8500);
+  insert.run('CAMPESTRE', 11000);
+  insert.run('FIT', 13500);
+  insert.run('FIT PLUS', 15000);
+  insert.run('DULCERO', 12000);
 
-for (const [nombre, precio, categoria] of productosBar) {
-  insertProducto.run(nombre, precio, categoria, nombre);
+  // Bebidas
+  insert.run('AGUA SABORIZADA FRESH', 1800);
+  insert.run('AGUA MINERAL VILLAVI', 2000);
+  insert.run('GASEOSA PEPSI', 1800);
+  insert.run('GASEOSA COCACOLA', 2200);
+  insert.run('FANTA NARANJA', 2200);
+  insert.run('SPRITE', 1800);
+  insert.run('GATORADE', 2400);
+  insert.run('JUGO BAGGIO', 1000);
+  insert.run('YOGUR MAMFREY', 1500);
+  insert.run('YOGUR ILOLAY', 1200);
+  insert.run('YOGUR SERENICIMA', 1200);
+  insert.run('MOSTER AMARILLO', 3500);
+  insert.run('LATA BRAHMA', 3200);
+  insert.run('LATA IMPERIAL GOLDEN', 3500);
+
+  // Combos y varios del último archivo
+  insert.run('1 Porción de Tarta + Jarrito', 7500);
+  insert.run('2 Licuados y Tostados', 14500);
+  insert.run('1 Licuado + Tostado', 8500);
+  insert.run('Sandwich de Miga', 2500);
+  insert.run('Tostados', 3500);
+  insert.run('Sandwich Baguette', 3500);
+  insert.run('Sandwich Pan Lactal', 2500);
+  insert.run('1 Cafe/Leche + Mafalda', 5500);
+  insert.run('Medialuna', 800);
+  insert.run('Mafalda', 1500);
+  insert.run('Factura', 800);
+  insert.run('Criollo', 800);
+  insert.run('Galletas Cookies', 3500);
+  insert.run('Alfajor de Chocolate', 4500);
+  insert.run('Ensalada de Frutas', 1500);
+  insert.run('Gelatina', 2000);
+  insert.run('Scones/Queso x 100g', 3700);
+  insert.run('Chipa x 100g', 3000);
+  insert.run('Criollos x 100g', 2500);
+
+  console.log("✅ productos cargados");
+
+} catch (error) {
+  console.error(error);
 }
-
-console.log('Datos básicos insertados (mesas, mozos, menú bar)');
