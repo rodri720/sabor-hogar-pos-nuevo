@@ -3,13 +3,13 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import db from '../db/pool.js';
+import qr from 'qrcode';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ticketsDir = path.join(__dirname, '../../tickets');
 
 if (!fs.existsSync(ticketsDir)) fs.mkdirSync(ticketsDir, { recursive: true });
 
-// Mapeo de métodos de pago
 const METODO_TEXTO = {
   efectivo: 'Efectivo',
   debito: 'Débito',
@@ -18,11 +18,22 @@ const METODO_TEXTO = {
   qr: 'QR / Mercado Pago',
 };
 
-// Genera el HTML con el diseño que me pasaste, pero usando datos del titular (COMERCIO)
-const generarHTMLFactura = (COMERCIO, pedido, detalles, factura) => {
-  const numeroComprobante = `${COMERCIO.puntoVenta}-${String(factura.numeroFactura).padStart(8, '0')}`;
-  const fechaEmision = new Date().toLocaleDateString('es-AR');
-  const periodo = new Date().toLocaleDateString('es-AR', { month: '2-digit', year: 'numeric' });
+// Función para sumar días a una fecha
+const sumarDias = (fecha, dias) => {
+  const result = new Date(fecha);
+  result.setDate(result.getDate() + dias);
+  return result;
+};
+
+// Genera el HTML (se añaden los campos faltantes)
+const generarHTMLFactura = (COMERCIO, pedido, detalles, factura, qrDataUrl) => {
+  const puntoVentaFormateado = String(COMERCIO.puntoVenta).padStart(5, '0');
+  const numeroComprobante = `${puntoVentaFormateado}-${String(factura.numeroFactura).padStart(8, '0')}`;
+  const fechaEmision = new Date();
+  const fechaEmisionStr = fechaEmision.toLocaleDateString('es-AR');
+  const periodoDesde = fechaEmisionStr;
+  const periodoHasta = fechaEmisionStr;
+  const fechaVtoPago = sumarDias(fechaEmision, 5).toLocaleDateString('es-AR');
   const metodoPago = METODO_TEXTO[pedido.metodo_pago] || pedido.metodo_pago || 'Contado';
 
   const formatearPrecio = (valor) => {
@@ -190,13 +201,10 @@ const generarHTMLFactura = (COMERCIO, pedido, detalles, factura) => {
         .qr-box {
             text-align: right;
         }
-        .qr-placeholder {
+        .qr-image {
             width: 70px;
             height: 70px;
-            background-color: #ccc;
-            display: inline-block;
             margin-bottom: 4px;
-            background-image: repeating-linear-gradient(45deg, #ccc, #ccc 5px, #aaa 5px, #aaa 10px);
         }
     </style>
 </head>
@@ -210,7 +218,8 @@ const generarHTMLFactura = (COMERCIO, pedido, detalles, factura) => {
     <div class="top-section">
         <div class="top-left">
             <div class="bold" style="font-size: 13px;">${COMERCIO.nombre}</div>
-            <div>${COMERCIO.direccion} - ${COMERCIO.localidad}</div>
+            <div><strong>Razón Social:</strong> ${COMERCIO.razonSocial}</div>
+            <div><strong>Domicilio Comercial:</strong> ${COMERCIO.direccion} - ${COMERCIO.barrio || ''}, ${COMERCIO.localidad}</div>
             <div style="font-size: 9px; margin-top: 5px; color: #555;">
                 Inicio de Actividades: ${COMERCIO.inicioActividades}
             </div>
@@ -221,7 +230,8 @@ const generarHTMLFactura = (COMERCIO, pedido, detalles, factura) => {
         </div>
         <div class="top-right">
             <div><span class="bold">CUIT:</span> ${COMERCIO.cuit}</div>
-            <div><span class="bold">Punto de venta:</span> ${COMERCIO.puntoVenta}</div>
+            <div><span class="bold">Ingresos Brutos:</span> ${COMERCIO.ingresosBrutos || 'No alcanzado'}</div>
+            <div><span class="bold">Punto de venta:</span> ${puntoVentaFormateado}</div>
             <div><span class="bold">Comp. Nº:</span> ${numeroComprobante}</div>
             <div><span class="bold">Condición IVA:</span> ${COMERCIO.condicionIVA}</div>
         </div>
@@ -229,9 +239,14 @@ const generarHTMLFactura = (COMERCIO, pedido, detalles, factura) => {
 
     <div class="info-section">
         <div class="info-row">
-            <div class="info-col" style="width: 35%;"><span class="bold">Fecha de Emisión:</span> ${fechaEmision}</div>
+            <div class="info-col" style="width: 35%;"><span class="bold">Fecha de Emisión:</span> ${fechaEmisionStr}</div>
             <div class="info-col" style="width: 35%;"><span class="bold">Condición de venta:</span> Contado</div>
-            <div class="info-col" style="width: 30%;"><span class="bold">Período:</span> ${periodo}</div>
+            <div class="info-col" style="width: 30%;"><span class="bold">Período Facturado Desde:</span> ${periodoDesde}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-col" style="width: 35%;"><span class="bold">Fecha de Vto. para el pago:</span> ${fechaVtoPago}</div>
+            <div class="info-col" style="width: 35%;"><span class="bold">Hasta:</span> ${periodoHasta}</div>
+            <div class="info-col" style="width: 30%;"></div>
         </div>
     </div>
 
@@ -275,7 +290,7 @@ const generarHTMLFactura = (COMERCIO, pedido, detalles, factura) => {
             <div style="font-size: 8px; color: #555; margin-top: 3px;">Comprobante Autorizado por AFIP</div>
         </div>
         <div class="qr-box">
-            <div class="qr-placeholder"></div>
+            <img src="${qrDataUrl}" class="qr-image" alt="Código QR" />
             <div style="font-size: 8px; color: #555;">Datos del comprobante</div>
         </div>
     </div>
@@ -285,9 +300,8 @@ const generarHTMLFactura = (COMERCIO, pedido, detalles, factura) => {
 </html>`;
 };
 
-// Función principal que exportamos y que usa pedidoController
 export const generarTicket = async (pedido, detalles, factura, titularId) => {
-  // Obtener datos del titular desde la base de datos
+  // Obtener datos del titular
   let titular;
   if (titularId) {
     titular = db.prepare('SELECT * FROM titulares WHERE id = ?').get(titularId);
@@ -299,23 +313,43 @@ export const generarTicket = async (pedido, detalles, factura, titularId) => {
     throw new Error('No hay titulares configurados');
   }
 
-  // Construir objeto COMERCIO con los datos del titular
+  // Construir objeto COMERCIO con todos los campos necesarios (incluyendo barrio e ingresosBrutos)
   const COMERCIO = {
     nombre: titular.nombre,
     razonSocial: titular.razon_social || titular.nombre,
     direccion: titular.direccion,
+    barrio: titular.barrio || 'Barrio Avenida',
     localidad: titular.localidad,
     cuit: titular.cuit,
     condicionIVA: titular.condicion_iva,
     iibb: titular.iibb || 'No alcanzado',
+    ingresosBrutos: titular.ingresos_brutos || 'No registrado',
     inicioActividades: titular.inicio_actividades,
-    puntoVenta: titular.punto_venta || '0001',
+    puntoVenta: String(titular.punto_venta || '00001'), // asegurar string
   };
 
-  const html = generarHTMLFactura(COMERCIO, pedido, detalles, factura);
+  // Generar QR según estándar AFIP para Factura C
+  const cuitNum = COMERCIO.cuit.replace(/-/g, '');
+  const puntoVentaNum = COMERCIO.puntoVenta.padStart(5, '0');
+  const nroComprobante = String(factura.numeroFactura).padStart(8, '0');
+  const cae = factura.cae;
+  const vtoCAE = factura.vencimientoCAE; // debe venir en formato YYYYMMDD
+  const importeTotal = pedido.total.toFixed(2);
+
+  const qrPayload = `${cuitNum}|${puntoVentaNum}|${nroComprobante}|${cae}|${vtoCAE}|${importeTotal}`;
+  const qrUrl = `https://www.afip.gob.ar/fe/qr/?p=${encodeURIComponent(qrPayload)}`;
+
+  const qrDataUrl = await qr.toDataURL(qrUrl, {
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    width: 150,
+    color: { dark: '#000000', light: '#ffffff' }
+  });
+
+  const html = generarHTMLFactura(COMERCIO, pedido, detalles, factura, qrDataUrl);
   const browser = await puppeteer.launch({ headless: 'new' });
   const page = await browser.newPage();
-  await page.setContent(html);
+  await page.setContent(html, { waitUntil: 'networkidle0' });
   const filename = `factura-${factura.numeroFactura}.pdf`;
   const filepath = path.join(ticketsDir, filename);
   await page.pdf({ path: filepath, format: 'A4', printBackground: true });
