@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Navbar, Nav, Container } from "react-bootstrap";
 import Dashboard from "./pages/Dashboard";
 import MesaCliente from "./pages/MesaCliente";
@@ -12,14 +12,15 @@ function App() {
     <BrowserRouter>
       <Navbar bg="dark" variant="dark" expand="lg">
         <Container>
-          <Navbar.Brand as={Link} to="/">Sabor Hogar POS</Navbar.Brand>
+          <Navbar.Brand href="/">Sabor Hogar POS</Navbar.Brand>
           <Navbar.Toggle aria-controls="basic-navbar-nav" />
           <Navbar.Collapse id="basic-navbar-nav">
             <Nav className="me-auto">
-              <Nav.Link as={Link} to="/">Dashboard</Nav.Link>
-              <Nav.Link as={Link} to="/gestion-menu">Gestión Menú</Nav.Link>
-              <Nav.Link as={Link} to="/control-stock">Control Stock</Nav.Link>
-              <Nav.Link as={Link} to="/reportes">Reportes</Nav.Link>
+              <Nav.Link href="/">Dashboard</Nav.Link>
+              <Nav.Link href="/gestion-menu">Gestión Menú</Nav.Link>
+              <Nav.Link href="/control-stock">Control Stock</Nav.Link>
+              <Nav.Link href="/reportes">Reportes</Nav.Link>
+              <Nav.Link href="/cierre-caja">Cierre de Caja</Nav.Link>
             </Nav>
           </Navbar.Collapse>
         </Container>
