@@ -8,9 +8,11 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Importa el pool (aunque no lo usemos directamente aquí)
+import pool from './src/db/pool.js';
 import { crearTablas } from './src/db/createTables.js';
 
-// Rutas
+// Rutas (todas deben estar adaptadas a PostgreSQL)
 import productosRoutes from './src/routes/productos.js';
 import mesasRoutes from './src/routes/mesas.js';
 import pedidosRouter from './src/routes/pedidos.js';
@@ -26,18 +28,18 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ✅ Middlewares
+// Middlewares
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-// ✅ CREAR TABLAS
+// Crear tablas en la base de datos (asíncrono)
 await crearTablas();
 
-// ✅ SERVIR TICKETS (CORRECTO 🔥)
+// Servir tickets estáticos
 app.use('/tickets', express.static(path.join(__dirname, 'tickets')));
 
-// ✅ RUTAS
+// Rutas de la API
 app.use('/api/productos', productosRoutes);
 app.use('/api/mesas', mesasRoutes);
 app.use('/api/pedidos', pedidosRouter);
@@ -47,18 +49,19 @@ app.use('/api/gastos', gastosRoutes);
 app.use('/api/cierre', cierreRoutes);
 app.use('/api/ventas', ventasRoutes);
 app.use('/api/titulares', titularRoutes);
-// ✅ HEALTH
+
+// Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date() });
 });
 
-// ✅ ERROR GLOBAL
+// Manejador de errores global
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 
-// ✅ START SERVER
+// Iniciar servidor
 const server = app.listen(PORT);
 
 server.once('listening', () => {
@@ -69,11 +72,7 @@ server.once('listening', () => {
 server.on('error', (err) => {
   console.error('❌ No se pudo abrir el puerto:', err.message);
   if (err.code === 'EADDRINUSE') {
-    console.error(
-      `   El puerto ${PORT} ya está en uso (¿otro npm run dev?). Cerrá esa ventana o en server/.env definí PORT=3001`
-    );
+    console.error(`   El puerto ${PORT} ya está en uso. Cambialo en .env o cierra el otro proceso.`);
   }
   process.exit(1);
 });
-
-// En tu archivo principal (ej. server.js o routes/mozos.js)

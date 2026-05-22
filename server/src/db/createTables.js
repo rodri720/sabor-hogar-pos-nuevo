@@ -1,134 +1,118 @@
-import db from './pool.js';
-import { crearTablaPuntosVenta } from './puntoventa.js';
+import pool from './pool.js';
 
 export async function crearTablas() {
-  // Tabla mesas
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS mesas (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      numero INTEGER UNIQUE NOT NULL,
-      estado TEXT NOT NULL DEFAULT 'libre'
-    );
-  `);
+  try {
+    // 1. Tabla de ventas
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ventas (
+        id SERIAL PRIMARY KEY,
+        numero_factura INTEGER NOT NULL,
+        total DECIMAL(10,2) NOT NULL,
+        metodo_pago VARCHAR(50) NOT NULL,
+        fecha TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        hora TIME DEFAULT CURRENT_TIME
+      )
+    `);
 
-  // Tabla productos
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS productos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nombre TEXT NOT NULL,
-      precio REAL NOT NULL,
-      categoria TEXT,
-      activo INTEGER DEFAULT 1
-    );
-  `);
+    // 2. Tabla de gastos
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS gastos (
+        id SERIAL PRIMARY KEY,
+        concepto VARCHAR(255) NOT NULL,
+        monto DECIMAL(10,2) NOT NULL,
+        categoria VARCHAR(100) NOT NULL,
+        fecha DATE NOT NULL
+      )
+    `);
 
-  // Tabla pedidos (sin mozo aún)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pedidos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      mesa_id INTEGER REFERENCES mesas(id),
-      estado TEXT NOT NULL,
-      total REAL DEFAULT 0,
-      factura_numero INTEGER,
-      cae TEXT,
-      cae_vto TEXT,
-      metodo_pago TEXT
-    );
-  `);
+    // 3. Tabla de cierre de caja
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cierre_caja (
+        id SERIAL PRIMARY KEY,
+        fecha DATE NOT NULL UNIQUE,
+        total_ventas DECIMAL(10,2) NOT NULL,
+        total_gastos DECIMAL(10,2) NOT NULL,
+        ganancia_neta DECIMAL(10,2) NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-  // Tabla pedido_detalle
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pedido_detalle (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      pedido_id INTEGER REFERENCES pedidos(id),
-      producto_id INTEGER REFERENCES productos(id),
-      cantidad INTEGER NOT NULL,
-      precio_unitario REAL NOT NULL,
-      subtotal REAL NOT NULL
-    );
-  `);
+    // 4. Tabla de productos
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS productos (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(255) NOT NULL,
+        precio DECIMAL(10,2) NOT NULL,
+        categoria VARCHAR(100),
+        activo BOOLEAN DEFAULT TRUE
+      )
+    `);
 
-  // Tabla gastos
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS gastos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      concepto TEXT NOT NULL,
-      monto REAL NOT NULL,
-      categoria TEXT,
-      fecha TEXT NOT NULL
-    );
-  `);
+    // 5. Tabla de mesas
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS mesas (
+        id SERIAL PRIMARY KEY,
+        numero INTEGER NOT NULL UNIQUE,
+        capacidad INTEGER,
+        estado VARCHAR(50) DEFAULT 'libre'
+      )
+    `);
 
-  // Tabla cierre_caja
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS cierre_caja (
-      fecha TEXT PRIMARY KEY,
-      total_ventas REAL,
-      total_gastos REAL
-    );
-  `);
+    // 6. Tabla de mozos
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS mozos (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(255) NOT NULL,
+        activo BOOLEAN DEFAULT TRUE
+      )
+    `);
 
-  // Tabla mozos
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS mozos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nombre TEXT NOT NULL,
-      codigo TEXT NOT NULL,
-      activo INTEGER DEFAULT 1
-    );
-  `);
+    // 7. Tabla de combos
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS combos (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(255) NOT NULL,
+        precio DECIMAL(10,2) NOT NULL,
+        productos_ids INTEGER[]  -- array de IDs de productos
+      )
+    `);
 
-  // Tabla combos
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS combos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nombre TEXT NOT NULL,
-      precio REAL NOT NULL,
-      activo INTEGER DEFAULT 1
-    );
-  `);
+    // 8. Tabla de titulares (para facturación)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS titulares (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(255) NOT NULL,
+        documento VARCHAR(50),
+        telefono VARCHAR(50)
+      )
+    `);
 
-  // Tabla ventas
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS ventas (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      numero_factura INTEGER,
-      total REAL,
-      metodo_pago TEXT,
-      fecha TEXT,
-      mesa_id INTEGER REFERENCES mesas(id),
-      estado TEXT
-    );
-  `);
+    // 9. Tabla de pedidos
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pedidos (
+        id SERIAL PRIMARY KEY,
+        mesa_id INTEGER REFERENCES mesas(id) ON DELETE SET NULL,
+        mozo_id INTEGER REFERENCES mozos(id) ON DELETE SET NULL,
+        fecha TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        total DECIMAL(10,2),
+        estado VARCHAR(50)
+      )
+    `);
 
-  // Tabla titulares (para los dos responsables)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS titulares (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nombre TEXT NOT NULL,
-      razon_social TEXT,
-      cuit TEXT NOT NULL,
-      direccion TEXT,
-      localidad TEXT,
-      condicion_iva TEXT,
-      iibb TEXT,
-      inicio_actividades TEXT,
-      punto_venta TEXT,
-      activo INTEGER DEFAULT 1
-    );
-  `);
+    // 10. Tabla de detalles de pedido (si la usas, añádela)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pedido_detalles (
+        id SERIAL PRIMARY KEY,
+        pedido_id INTEGER REFERENCES pedidos(id) ON DELETE CASCADE,
+        producto_id INTEGER REFERENCES productos(id),
+        cantidad INTEGER NOT NULL,
+        precio_unitario DECIMAL(10,2)
+      )
+    `);
 
-  // Agregar columna mozo a pedidos si no existe
-  const pedidoCols = db.prepare(`PRAGMA table_info(pedidos)`).all();
-  const tieneMozo = pedidoCols.some(c => c.name === 'mozo');
-  if (!tieneMozo) {
-    db.exec(`ALTER TABLE pedidos ADD COLUMN mozo INTEGER`);
+    console.log('✅ Tablas creadas/verificadas en Neon');
+  } catch (error) {
+    console.error('❌ Error creando tablas:', error.message);
+    throw error;
   }
-
-  // Crear tabla punto de venta (si existe la función)
-  if (typeof crearTablaPuntosVenta === 'function') {
-    await crearTablaPuntosVenta();
-  }
-
-  console.log('✅ Tablas creadas/verificadas correctamente');
 }

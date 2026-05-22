@@ -1,4 +1,4 @@
-import db from '../db/pool.js';
+import pool from '../db/pool.js';
 import { crearFacturaAFIP } from '../services/arcaService.js';
 import { generarTicket } from '../services/pdfService.js';
 import { crearPreferenciaCobro } from '../services/mpPreferenceService.js';
@@ -19,28 +19,29 @@ const calcularTotales = (detalles) => {
 };
 
 // ====================== PEDIDO ACTIVO ======================
-export const getPedidoActivoPorMesa = (req, res) => {
+export const getPedidoActivoPorMesa = async (req, res) => {
   const { mesaId } = req.params;
-
   console.log("📥 getPedidoActivoPorMesa:", mesaId);
 
   try {
-    const pedido = db.prepare(`
-      SELECT * FROM pedidos 
-      WHERE mesa_id = ? AND estado = 'abierto'
-    `).get(mesaId);
+    const { rows: pedidos } = await pool.query(
+      `SELECT * FROM pedidos WHERE mesa_id = $1 AND estado = 'abierto'`,
+      [mesaId]
+    );
+    const pedido = pedidos[0];
 
     if (!pedido) {
       console.log("❌ No hay pedido activo para mesa", mesaId);
       return res.json(null);
     }
 
-    const detalles = db.prepare(`
-      SELECT pd.*, p.nombre
-      FROM pedido_detalle pd
-      JOIN productos p ON pd.producto_id = p.id
-      WHERE pd.pedido_id = ?
-    `).all(pedido.id);
+    const { rows: detalles } = await pool.query(
+      `SELECT pd.*, p.nombre
+       FROM pedido_detalle pd
+       JOIN productos p ON pd.producto_id = p.id
+       WHERE pd.pedido_id = $1`,
+      [pedido.id]
+    );
 
     console.log("✅ Pedido activo encontrado:", pedido.id);
     res.json({ ...pedido, detalles });
@@ -51,9 +52,8 @@ export const getPedidoActivoPorMesa = (req, res) => {
 };
 
 // ====================== CREAR PEDIDO ======================
-export const crearPedido = (req, res) => {
+export const crearPedido = async (req, res) => {
   const { mesa_id, mozo } = req.body;
-
   console.log("➕ crearPedido:", { mesa_id, mozo });
 
   try {
@@ -63,18 +63,22 @@ export const crearPedido = (req, res) => {
       });
     }
 
-    const mesa = db.prepare('SELECT id FROM mesas WHERE id = ?').get(mesa_id);
-    if (!mesa) {
+    const { rows: mesas } = await pool.query('SELECT id FROM mesas WHERE id = $1', [mesa_id]);
+    if (mesas.length === 0) {
       return res.status(400).json({ error: "Mesa inexistente" });
     }
 
-    const pedido = db.prepare(`
-      INSERT INTO pedidos (mesa_id, estado, total, mozo)
-      VALUES (?, 'abierto', 0, ?)
-      RETURNING *
-    `).get(mesa_id, mozo);
+    // Insertar pedido (incluye la columna mozo que ya debería existir)
+    const { rows: newPedidos } = await pool.query(
+      `INSERT INTO pedidos (mesa_id, estado, total, mozo)
+       VALUES ($1, 'abierto', 0, $2)
+       RETURNING *`,
+      [mesa_id, mozo]
+    );
+    const pedido = newPedidos[0];
 
-    db.prepare(`UPDATE mesas SET estado = 'ocupada' WHERE id = ?`).run(mesa_id);
+    // Actualizar estado de la mesa
+    await pool.query(`UPDATE mesas SET estado = 'ocupada' WHERE id = $1`, [mesa_id]);
 
     console.log("✅ pedido creado con mozo:", pedido);
     res.status(201).json(pedido);
@@ -85,33 +89,33 @@ export const crearPedido = (req, res) => {
 };
 
 // ====================== AGREGAR PRODUCTO ======================
-export const agregarProducto = (req, res) => {
+export const agregarProducto = async (req, res) => {
   const { id } = req.params;
   const { producto_id, cantidad } = req.body;
-
   console.log("🛒 agregarProducto:", { pedidoId: id, producto_id, cantidad });
 
   try {
-    const pedido = db.prepare(`SELECT * FROM pedidos WHERE id = ?`).get(id);
-    if (!pedido) {
+    const { rows: pedidos } = await pool.query('SELECT * FROM pedidos WHERE id = $1', [id]);
+    if (pedidos.length === 0) {
       return res.status(404).json({ error: 'Pedido no encontrado' });
     }
 
-    const producto = db.prepare('SELECT * FROM productos WHERE id = ?').get(producto_id);
-    if (!producto) {
+    const { rows: productos } = await pool.query('SELECT * FROM productos WHERE id = $1', [producto_id]);
+    if (productos.length === 0) {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
 
+    const producto = productos[0];
     const precio = Number(producto.precio);
     const subtotal = precio * cantidad;
 
-    db.prepare(`
-      INSERT INTO pedido_detalle
-      (pedido_id, producto_id, cantidad, precio_unitario, subtotal)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(id, producto_id, cantidad, precio, subtotal);
+    await pool.query(
+      `INSERT INTO pedido_detalle (pedido_id, producto_id, cantidad, precio_unitario, subtotal)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [id, producto_id, cantidad, precio, subtotal]
+    );
 
-    db.prepare(`UPDATE pedidos SET total = total + ? WHERE id = ?`).run(subtotal, id);
+    await pool.query(`UPDATE pedidos SET total = total + $1 WHERE id = $2`, [subtotal, id]);
 
     console.log("✅ Producto agregado correctamente");
     res.json({ message: 'Producto agregado', subtotal });
@@ -126,17 +130,18 @@ export const preferenciaMercadoPago = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const pedido = db
-      .prepare(`SELECT * FROM pedidos WHERE id = ? AND estado = 'abierto'`)
-      .get(id);
-
-    if (!pedido) {
+    const { rows: pedidos } = await pool.query(
+      `SELECT * FROM pedidos WHERE id = $1 AND estado = 'abierto'`,
+      [id]
+    );
+    if (pedidos.length === 0) {
       return res.status(404).json({ error: 'Pedido abierto no encontrado' });
     }
 
-    const detalles = db
-      .prepare(`SELECT pd.subtotal FROM pedido_detalle pd WHERE pd.pedido_id = ?`)
-      .all(id);
+    const { rows: detalles } = await pool.query(
+      `SELECT subtotal FROM pedido_detalle WHERE pedido_id = $1`,
+      [id]
+    );
 
     if (detalles.length === 0) {
       return res.status(400).json({ error: 'Sin productos' });
@@ -169,38 +174,56 @@ export const cerrarPedido = async (req, res) => {
   const { id } = req.params;
   const metodoRaw = req.body?.metodo_pago;
   const metodo_pago = METODOS_PAGO.has(metodoRaw) ? metodoRaw : 'efectivo';
-  const titular_id = req.body?.titular_id; // 👈 nuevo: titular seleccionado
+  const titular_id = req.body?.titular_id;
 
   console.log('💰 cerrarPedido ID:', id, 'metodo:', metodo_pago, 'titular_id:', titular_id);
 
+  // Validar que id sea un número válido
+  const pedidoId = parseInt(id, 10);
+  if (isNaN(pedidoId)) {
+    return res.status(400).json({ error: 'ID de pedido inválido' });
+  }
+
+  const client = await pool.connect();
+
   try {
-    const pedido = db.prepare(`SELECT * FROM pedidos WHERE id = ?`).get(id);
-    if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
-    if (pedido.estado !== 'abierto') return res.status(400).json({ error: 'Pedido ya cerrado' });
+    await client.query('BEGIN');
 
-    const detalles = db
-      .prepare(`
-        SELECT pd.*, p.nombre
-        FROM pedido_detalle pd
-        JOIN productos p ON pd.producto_id = p.id
-        WHERE pd.pedido_id = ?
-      `)
-      .all(id);
+    // Obtener pedido
+    const { rows: pedidos } = await client.query('SELECT * FROM pedidos WHERE id = $1', [pedidoId]);
+    if (pedidos.length === 0) throw new Error('Pedido no encontrado');
+    const pedido = pedidos[0];
+    if (pedido.estado !== 'abierto') throw new Error('Pedido ya cerrado');
 
-    if (detalles.length === 0) return res.status(400).json({ error: 'Sin productos' });
+    // Obtener detalles
+    const { rows: detalles } = await client.query(
+      `SELECT pd.*, p.nombre
+       FROM pedido_detalle pd
+       JOIN productos p ON pd.producto_id = p.id
+       WHERE pd.pedido_id = $1`,
+      [pedidoId]
+    );
+
+    if (detalles.length === 0) throw new Error('Sin productos');
 
     const { total, neto, iva } = calcularTotales(detalles);
     console.log('💵 Totales:', { total, neto, iva });
 
-    db.transaction(() => {
-      db.prepare(`UPDATE pedidos SET estado = 'cerrado', total = ?, metodo_pago = ? WHERE id = ?`)
-        .run(total, metodo_pago, id);
-      const info = db.prepare(`UPDATE mesas SET estado = 'libre' WHERE id = ?`).run(pedido.mesa_id);
-      if (info.changes === 0) throw new Error('No se encontró la mesa para liberar');
-    })();
+    // Cerrar pedido (asegurar que se pasan los tres parámetros)
+    const updateResult = await client.query(
+      `UPDATE pedidos SET estado = 'cerrado', total = $1, metodo_pago = $2 WHERE id = $3`,
+      [total, metodo_pago, pedidoId]
+    );
+    if (updateResult.rowCount === 0) throw new Error('No se pudo actualizar el pedido');
 
+    // Liberar mesa
+    const { rowCount } = await client.query(`UPDATE mesas SET estado = 'libre' WHERE id = $1`, [pedido.mesa_id]);
+    if (rowCount === 0) throw new Error('No se encontró la mesa para liberar');
+
+    await client.query('COMMIT');
     console.log('✅ Pedido cerrado y mesa liberada:', pedido.mesa_id);
 
+    // Generar factura y ticket (fuera de la transacción)
     let factura = null;
     let ticket = null;
     let numeroFactura = null;
@@ -212,14 +235,12 @@ export const cerrarPedido = async (req, res) => {
         iva,
         puntoDeVenta: Number(process.env.ARCA_PTO_VTA || 1),
       });
-
       numeroFactura = factura?.numeroFactura ?? null;
 
-      // Si no se envió titular_id, usar el primer activo
       let titularId = titular_id;
       if (!titularId) {
-        const defaultTitular = db.prepare('SELECT id FROM titulares WHERE activo = 1 LIMIT 1').get();
-        titularId = defaultTitular?.id;
+        const { rows: titulares } = await pool.query('SELECT id FROM titulares WHERE activo = true LIMIT 1');
+        titularId = titulares[0]?.id;
       }
 
       ticket = await generarTicket(
@@ -228,17 +249,18 @@ export const cerrarPedido = async (req, res) => {
         factura,
         titularId
       );
-
       console.log('✅ Factura generada:', numeroFactura);
     } catch (err) {
       console.log('⚠ Error AFIP/PDF:', err.message);
     }
 
+    // Registrar venta
     try {
-      db.prepare(`
-        INSERT INTO ventas (numero_factura, total, metodo_pago, fecha, mesa_id, estado)
-        VALUES (?, ?, ?, ?, ?, 'cerrado')
-      `).run(numeroFactura, total, metodo_pago, new Date().toISOString(), pedido.mesa_id);
+      await pool.query(
+        `INSERT INTO ventas (numero_factura, total, metodo_pago, fecha, mesa_id, estado)
+         VALUES ($1, $2, $3, $4, $5, 'cerrado')`,
+        [numeroFactura, total, metodo_pago, new Date().toISOString(), pedido.mesa_id]
+      );
     } catch (e) {
       console.warn('⚠ No se pudo registrar venta:', e.message);
     }
@@ -250,7 +272,10 @@ export const cerrarPedido = async (req, res) => {
       ticket: ticket && factura ? `/tickets/factura-${factura.numeroFactura}.pdf` : null,
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('🔥 ERROR cerrarPedido:', error);
     res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 };
