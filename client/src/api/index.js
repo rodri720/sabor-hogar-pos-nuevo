@@ -1,290 +1,129 @@
-import { productosMock, combosMock, mesasMock, mozosMock, insumosMock, gastosMock, ventasStorage, nextVentaId as nextId } from '../mocks.js';
-
+// ==================== CONFIGURACIÓN ====================
 export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-async function fetchApiList(path) {
-  const res = await fetch(`${API_BASE}${path}`);
+// ==================== FETCH UTILS ====================
+async function fetchApi(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `${res.status} ${path}`);
   }
+  if (res.status === 204) return null;
+  return await res.json();
+}
+
+async function fetchApiList(path) {
+  const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) throw new Error(`${res.status} ${path}`);
   const data = await res.json();
   return { data: Array.isArray(data) ? data : [] };
 }
 
-// Mesas y productos del panel: datos reales del servidor (SQLite)
+// ==================== MESAS ====================
 export const getMesas = () => fetchApiList('/api/mesas');
+export const crearMesa = (mesa) => fetchApi('/api/mesas', { method: 'POST', body: JSON.stringify(mesa) });
+export const actualizarMesa = (id, datos) => fetchApi(`/api/mesas/${id}`, { method: 'PUT', body: JSON.stringify(datos) });
+export const eliminarMesa = (id) => fetchApi(`/api/mesas/${id}`, { method: 'DELETE' });
+export const liberarMesa = (id) => fetchApi(`/api/mesas/${id}/liberar`, { method: 'DELETE' });
+
+// ==================== MOZOS ====================
+export const getMozos = () => fetchApiList('/api/mozos');
+export const crearMozo = (mozo) => fetchApi('/api/mozos', { method: 'POST', body: JSON.stringify(mozo) });
+export const actualizarMozo = (id, datos) => fetchApi(`/api/mozos/${id}`, { method: 'PUT', body: JSON.stringify(datos) });
+export const eliminarMozo = (id) => fetchApi(`/api/mozos/${id}`, { method: 'DELETE' });
+
+// ==================== PRODUCTOS ====================
 export const getProductos = () => fetchApiList('/api/productos');
+export const crearProducto = (producto) => fetchApi('/api/productos', { method: 'POST', body: JSON.stringify(producto) });
+export const actualizarProducto = (id, datos) => fetchApi(`/api/productos/${id}`, { method: 'PUT', body: JSON.stringify(datos) });
+export const eliminarProducto = (id) => fetchApi(`/api/productos/${id}`, { method: 'DELETE' });
 
-// ========== Funciones existentes (mantenidas) ==========
-export const getMozos = () => Promise.resolve({ data: mozosMock });
-export const getCombos = () => Promise.resolve({ data: combosMock });
+// ==================== COMBOS ====================
+export const getCombos = () => fetchApiList('/api/combos');
+export const crearCombo = (combo) => fetchApi('/api/combos', { method: 'POST', body: JSON.stringify(combo) });
+export const actualizarCombo = (id, datos) => fetchApi(`/api/combos/${id}`, { method: 'PUT', body: JSON.stringify(datos) });
+export const eliminarCombo = (id) => fetchApi(`/api/combos/${id}`, { method: 'DELETE' });
 
-let ventas = ventasStorage;
-let nextVentaId = nextId;
+// ==================== GASTOS ====================
+export const getGastos = (fecha) => fetchApiList(`/api/gastos?fecha=${fecha}`);
+export const crearGasto = (gasto) => fetchApi('/api/gastos', { method: 'POST', body: JSON.stringify(gasto) });
+export const actualizarGasto = (id, datos) => fetchApi(`/api/gastos/${id}`, { method: 'PUT', body: JSON.stringify(datos) });
+export const eliminarGasto = (id) => fetchApi(`/api/gastos/${id}`, { method: 'DELETE' });
 
-// ========== Ventas con stock y turno ==========
-export const crearVenta = (data) => {
-  const turno = new Date().getHours() < 15 ? "mañana" : "tarde";
-  let total = 0;
-  const itemsConDetalle = data.items.map(item => {
-    let precio = item.precio_unitario;
-    total += item.cantidad * precio;
-    return { ...item, precio_unitario: precio };
+// ==================== VENTAS / CIERRE ====================
+export const getVentasPorFecha = (fecha) => fetchApiList(`/api/ventas?fecha=${fecha}`);
+export const getCierreDiario = (fecha) => fetchApi(`/api/cierre?fecha=${fecha}`);
+export const crearVenta = (venta) => fetchApi('/api/ventas', { method: 'POST', body: JSON.stringify(venta) });
+
+// ==================== TITULARES ====================
+export const getTitulares = () => fetchApiList('/api/titulares');
+export const crearTitular = (titular) => fetchApi('/api/titulares', { method: 'POST', body: JSON.stringify(titular) });
+export const actualizarTitular = (id, datos) => fetchApi(`/api/titulares/${id}`, { method: 'PUT', body: JSON.stringify(datos) });
+export const eliminarTitular = (id) => fetchApi(`/api/titulares/${id}`, { method: 'DELETE' });
+
+// ==================== PEDIDOS ====================
+export const getPedidoActivoPorMesa = (mesaId) => fetchApi(`/api/pedidos/mesa/${mesaId}`);
+export const crearPedido = (pedido) => fetchApi('/api/pedidos', { method: 'POST', body: JSON.stringify(pedido) });
+export const agregarProductoAPedido = (pedidoId, productoId, cantidad) =>
+  fetchApi(`/api/pedidos/${pedidoId}/agregarProducto`, {
+    method: 'POST',
+    body: JSON.stringify({ producto_id: productoId, cantidad }),
   });
-  
-  const nueva = { 
-    id: nextVentaId++, 
-    ...data, 
-    items: itemsConDetalle,
-    total,
-    fecha: new Date().toISOString(), 
-    estado: 'cerrado',  // Cambiado de 'pendiente' a 'cerrado' para reportes
-    turno 
-  };
-  ventas.push(nueva);
-  
-  // Descontar stock de productos (si tienen la propiedad stock y consumoPorUnidad)
-  data.items.forEach(item => {
-    if (item.producto_id) {
-      const producto = productosMock.find(p => p.id === item.producto_id);
-      if (producto && producto.stock !== undefined) {
-        const consumo = producto.consumoPorUnidad || 1;
-        producto.stock -= item.cantidad * consumo;
-      }
-    }
+export const cerrarPedido = (pedidoId, metodo_pago, titular_id) =>
+  fetchApi(`/api/pedidos/${pedidoId}/cerrar`, {
+    method: 'POST',
+    body: JSON.stringify({ metodo_pago, titular_id }),
   });
-  
-  return Promise.resolve({ data: nueva });
+export const preferenciaMercadoPago = (pedidoId) =>
+  fetchApi(`/api/pedidos/${pedidoId}/preferencia-mp`, { method: 'POST' });
+
+// ==================== INSUMOS (STOCK) ====================
+export const getInsumos = () => fetchApiList('/api/insumos');
+export const crearInsumo = (insumo) => fetchApi('/api/insumos', { method: 'POST', body: JSON.stringify(insumo) });
+export const actualizarInsumo = (id, datos) => fetchApi(`/api/insumos/${id}`, { method: 'PUT', body: JSON.stringify(datos) });
+export const eliminarInsumo = (id) => fetchApi(`/api/insumos/${id}`, { method: 'DELETE' });
+export const reponerInsumo = (id, cantidad) => fetchApi(`/api/insumos/${id}/reponer`, { method: 'POST', body: JSON.stringify({ cantidad }) });
+
+// ==================== REPORTES ====================
+export const getVentasPorTurno = async (fecha, turno) => {
+  const { data: ventas } = await getVentasPorFecha(fecha);
+  const filtradas = ventas.filter(v => {
+    const hora = new Date(v.fecha).getHours();
+    const esManana = hora < 15;
+    return turno === 'mañana' ? esManana : !esManana;
+  });
+  return { data: filtradas };
 };
 
-export const cerrarVenta = (id) => {
-  const venta = ventas.find(v => v.id === id);
-  if (venta) venta.estado = 'cerrado';
-  return Promise.resolve({ data: { success: true } });
+export const getGastosPorTurno = async (fecha, turno) => {
+  const { data: gastos } = await getGastos(fecha);
+  return { data: gastos };
 };
 
-// Mantener getVentasPorFecha (compatible)
-export const getVentasPorFecha = (fecha) => 
-  Promise.resolve({ data: ventas.filter(v => v.fecha.startsWith(fecha)) });
+export const getResumenDia = async (fecha) => {
+  const ventasManana = await getVentasPorTurno(fecha, 'mañana');
+  const ventasTarde = await getVentasPorTurno(fecha, 'tarde');
+  const gastosManana = await getGastosPorTurno(fecha, 'mañana');
+  const gastosTarde = await getGastosPorTurno(fecha, 'tarde');
 
-// ========== NUEVAS FUNCIONES PARA REPORTES ==========
-export const getVentasPorTurno = (fecha, turno) => {
-  const fechaInicio = `${fecha}T00:00:00`;
-  const fechaFin = `${fecha}T23:59:59`;
-  const filtradas = ventas.filter(v => 
-    v.fecha >= fechaInicio && v.fecha <= fechaFin && v.turno === turno
-  );
-  return Promise.resolve({ data: filtradas });
-};
-
-export const getGastosPorTurno = (fecha, turno) => {
-  const gastosFiltrados = gastosMock.filter(g => g.fecha === fecha && g.turno === turno);
-  return Promise.resolve({ data: gastosFiltrados });
-};
-
-export const getResumenDia = (fecha) => {
-  const ventasMañana = ventas.filter(v => v.fecha.startsWith(fecha) && v.turno === 'mañana');
-  const ventasTarde = ventas.filter(v => v.fecha.startsWith(fecha) && v.turno === 'tarde');
-  const gastosMañana = gastosMock.filter(g => g.fecha === fecha && g.turno === 'mañana');
-  const gastosTarde = gastosMock.filter(g => g.fecha === fecha && g.turno === 'tarde');
-  
-  const calcularResumenTurno = (ventasTurno, gastosTurno) => {
+  const calcularResumenTurno = (ventas, gastos) => {
     const porMetodo = { efectivo: 0, qr: 0, transferencia: 0, debito: 0, tarjeta: 0 };
-    ventasTurno.forEach(v => {
+    ventas.data.forEach(v => {
       if (porMetodo[v.metodo_pago] !== undefined) 
         porMetodo[v.metodo_pago] += v.total;
     });
     const totalVentas = Object.values(porMetodo).reduce((a,b) => a+b, 0);
-    const totalGastos = gastosTurno.reduce((acc, g) => acc + g.monto, 0);
+    const totalGastos = gastos.data.reduce((acc, g) => acc + g.monto, 0);
     return { porMetodo, totalVentas, totalGastos, ganancia: totalVentas - totalGastos };
   };
-  
-  return Promise.resolve({ 
+
+  return {
     data: {
-      mañana: calcularResumenTurno(ventasMañana, gastosMañana),
-      tarde: calcularResumenTurno(ventasTarde, gastosTarde)
-    }
-  });
-};
-
-// ========== CRUD Productos (tus funciones originales, pero mejoradas con stock) ==========
-export const crearProducto = (producto) => {
-  const newId = Math.max(...productosMock.map(p => p.id), 0) + 1;
-  const nuevo = { id: newId, ...producto, precio: Number(producto.precio), stock: Number(producto.stock) || 0 };
-  productosMock.push(nuevo);
-  return Promise.resolve({ data: nuevo });
-};
-
-export const actualizarProducto = (id, datos) => {
-  const index = productosMock.findIndex(p => p.id === id);
-  if (index !== -1) {
-    productosMock[index] = { ...productosMock[index], ...datos, precio: Number(datos.precio), stock: Number(datos.stock) };
-    return Promise.resolve({ data: productosMock[index] });
-  }
-  return Promise.reject('Producto no encontrado');
-};
-
-export const eliminarProducto = (id) => {
-  const index = productosMock.findIndex(p => p.id === id);
-  if (index !== -1) {
-    productosMock.splice(index, 1);
-    return Promise.resolve({ data: { success: true } });
-  }
-  return Promise.reject('Producto no encontrado');
-};
-
-// ========== CRUD Combos (tus funciones originales) ==========
-export const crearCombo = (combo) => {
-  const newId = Math.max(...combosMock.map(c => c.id), 0) + 1;
-  const nuevo = { id: newId, ...combo, precio: Number(combo.precio) };
-  combosMock.push(nuevo);
-  return Promise.resolve({ data: nuevo });
-};
-
-export const actualizarCombo = (id, datos) => {
-  const index = combosMock.findIndex(c => c.id === id);
-  if (index !== -1) {
-    combosMock[index] = { ...combosMock[index], ...datos, precio: Number(datos.precio) };
-    return Promise.resolve({ data: combosMock[index] });
-  }
-  return Promise.reject('Combo no encontrado');
-};
-
-export const eliminarCombo = (id) => {
-  const index = combosMock.findIndex(c => c.id === id);
-  if (index !== -1) {
-    combosMock.splice(index, 1);
-    return Promise.resolve({ data: { success: true } });
-  }
-  return Promise.reject('Combo no encontrado');
-};
-
-// ========== CRUD Mesas (tus funciones originales) ==========
-export const crearMesa = (mesa) => {
-  const newId = Math.max(...mesasMock.map(m=>m.id),0)+1;
-  const nueva = { id: newId, ...mesa, estado: 'libre' };
-  mesasMock.push(nueva);
-  return Promise.resolve({ data: nueva });
-};
-
-export const actualizarMesa = (id, datos) => {
-  const index = mesasMock.findIndex(m=>m.id===id);
-  if(index!==-1){
-    mesasMock[index]={...mesasMock[index],...datos};
-    return Promise.resolve({ data: mesasMock[index] });
-  }
-  return Promise.reject('No encontrada');
-};
-
-export const eliminarMesa = (id) => {
-  const index = mesasMock.findIndex(m=>m.id===id);
-  if(index!==-1){
-    mesasMock.splice(index,1);
-    return Promise.resolve({ data: { success: true } });
-  }
-  return Promise.reject('No encontrada');
-};
-
-// ========== CRUD Mozos (tus funciones originales) ==========
-export const crearMozo = (mozo) => {
-  const newId = Math.max(...mozosMock.map(m=>m.id),0)+1;
-  const nuevo = { id: newId, ...mozo };
-  mozosMock.push(nuevo);
-  return Promise.resolve({ data: nuevo });
-};
-
-export const actualizarMozo = (id, datos) => {
-  const index = mozosMock.findIndex(m=>m.id===id);
-  if(index!==-1){
-    mozosMock[index]={...mozosMock[index],...datos};
-    return Promise.resolve({ data: mozosMock[index] });
-  }
-  return Promise.reject('No encontrado');
-};
-
-export const eliminarMozo = (id) => {
-  const index = mozosMock.findIndex(m=>m.id===id);
-  if(index!==-1){
-    mozosMock.splice(index,1);
-    return Promise.resolve({ data: { success: true } });
-  }
-  return Promise.reject('No encontrado');
-};
-
-// ========== NUEVAS FUNCIONES PARA INSUMOS / STOCK ==========
-export const getInsumos = () => Promise.resolve({ data: insumosMock });
-
-export const crearInsumo = (insumo) => {
-  const newId = Math.max(...insumosMock.map(i => i.id), 0) + 1;
-  const nuevo = { id: newId, ...insumo, cantidad: Number(insumo.cantidad), umbral: Number(insumo.umbral) };
-  insumosMock.push(nuevo);
-  return Promise.resolve({ data: nuevo });
-};
-
-export const actualizarInsumo = (id, datos) => {
-  const index = insumosMock.findIndex(i => i.id === id);
-  if (index !== -1) {
-    insumosMock[index] = { ...insumosMock[index], ...datos, cantidad: Number(datos.cantidad), umbral: Number(datos.umbral) };
-    return Promise.resolve({ data: insumosMock[index] });
-  }
-  return Promise.reject('Insumo no encontrado');
-};
-
-export const eliminarInsumo = (id) => {
-  const index = insumosMock.findIndex(i => i.id === id);
-  if (index !== -1) {
-    insumosMock.splice(index, 1);
-    return Promise.resolve({ data: { success: true } });
-  }
-  return Promise.reject('Insumo no encontrado');
-};
-
-export const reponerInsumo = (id, cantidadAgregar) => {
-  const insumo = insumosMock.find(i => i.id === id);
-  if (insumo) {
-    insumo.cantidad += Number(cantidadAgregar);
-    return Promise.resolve({ data: insumo });
-  }
-  return Promise.reject('Insumo no encontrado');
-};
-
-// ========== NUEVAS FUNCIONES PARA GASTOS ==========
-export const getGastos = () => Promise.resolve({ data: gastosMock });
-
-export const crearGasto = (gasto) => {
-  const newId = Math.max(...gastosMock.map(g => g.id), 0) + 1;
-  const nuevo = { id: newId, ...gasto, monto: Number(gasto.monto), fecha: new Date().toISOString().split('T')[0] };
-  gastosMock.push(nuevo);
-  return Promise.resolve({ data: nuevo });
-};
-
-export const actualizarGasto = (id, datos) => {
-  const index = gastosMock.findIndex(g => g.id === id);
-  if (index !== -1) {
-    gastosMock[index] = { ...gastosMock[index], ...datos, monto: Number(datos.monto) };
-    return Promise.resolve({ data: gastosMock[index] });
-  }
-  return Promise.reject('Gasto no encontrado');
-};
-
-export const eliminarGasto = (id) => {
-  const index = gastosMock.findIndex(g => g.id === id);
-  if (index !== -1) {
-    gastosMock.splice(index, 1);
-    return Promise.resolve({ data: { success: true } });
-  }
-  return Promise.reject('Gasto no encontrado');
-};
-
-// Mantener getCierreDiario (original, pero ahora se puede usar el resumen)
-export const getCierreDiario = () => {
-  const hoy = new Date().toISOString().split('T')[0];
-  return getResumenDia(hoy).then(res => ({
-    data: {
-      total_ventas: res.data.mañana.totalVentas + res.data.tarde.totalVentas,
-      total_gastos: res.data.mañana.totalGastos + res.data.tarde.totalGastos,
-      ganancia_neta: (res.data.mañana.ganancia + res.data.tarde.ganancia)
-    }
-  }));
+      mañana: calcularResumenTurno(ventasManana, gastosManana),
+      tarde: calcularResumenTurno(ventasTarde, gastosTarde),
+    },
+  };
 };
