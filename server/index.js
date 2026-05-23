@@ -22,6 +22,7 @@ import gastosRoutes from './src/routes/gastos.js';
 import cierreRoutes from './src/routes/cierre.js';
 import ventasRoutes from './src/routes/ventas.js';
 import titularRoutes from './src/routes/titulares.js';
+import insumosRoutes from './src/routes/insumos.js';
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -49,6 +50,7 @@ app.use('/api/gastos', gastosRoutes);
 app.use('/api/cierre', cierreRoutes);
 app.use('/api/ventas', ventasRoutes);
 app.use('/api/titulares', titularRoutes);
+app.use('/api/insumos', insumosRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
