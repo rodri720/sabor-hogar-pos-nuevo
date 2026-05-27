@@ -87,7 +87,11 @@ export const actualizarInsumo = (id, datos) => fetchApi(`/api/insumos/${id}`, { 
 export const eliminarInsumo = (id) => fetchApi(`/api/insumos/${id}`, { method: 'DELETE' });
 export const reponerInsumo = (id, cantidad) => fetchApi(`/api/insumos/${id}/reponer`, { method: 'POST', body: JSON.stringify({ cantidad }) });
 
-// ==================== REPORTES ====================
+// ==================== FACTURAS ====================
+export const getFacturasPorFecha = (fecha) => fetchApiList(`/api/facturas?fecha=${fecha}`);
+export const reemitirFacturas = (fecha) => fetchApi('/api/facturas/reemitir', { method: 'POST', body: JSON.stringify({ fecha }) });
+
+// ==================== REPORTES (con conversión a número) ====================
 export const getVentasPorTurno = async (fecha, turno) => {
   const { data: ventas } = await getVentasPorFecha(fecha);
   const filtradas = ventas.filter(v => {
@@ -112,11 +116,12 @@ export const getResumenDia = async (fecha) => {
   const calcularResumenTurno = (ventas, gastos) => {
     const porMetodo = { efectivo: 0, qr: 0, transferencia: 0, debito: 0, tarjeta: 0 };
     ventas.data.forEach(v => {
+      const total = Number(v.total); // ✅ Conversión a número
       if (porMetodo[v.metodo_pago] !== undefined) 
-        porMetodo[v.metodo_pago] += v.total;
+        porMetodo[v.metodo_pago] += total;
     });
-    const totalVentas = Object.values(porMetodo).reduce((a,b) => a+b, 0);
-    const totalGastos = gastos.data.reduce((acc, g) => acc + g.monto, 0);
+    const totalVentas = Object.values(porMetodo).reduce((a, b) => a + b, 0);
+    const totalGastos = gastos.data.reduce((acc, g) => acc + Number(g.monto), 0); // ✅ Conversión
     return { porMetodo, totalVentas, totalGastos, ganancia: totalVentas - totalGastos };
   };
 

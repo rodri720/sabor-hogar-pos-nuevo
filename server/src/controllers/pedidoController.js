@@ -1,7 +1,13 @@
 import pool from '../db/pool.js';
 import { crearFacturaAFIP } from '../services/arcaService.js';
-import { generarTicket } from '../services/pdfService.js';
+import { generarTicketPDF } from '../services/generarTicketPDF.js'; // nuevo import
 import { crearPreferenciaCobro } from '../services/mpPreferenceService.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const METODOS_PAGO = new Set([
   'efectivo',
@@ -68,7 +74,6 @@ export const crearPedido = async (req, res) => {
       return res.status(400).json({ error: "Mesa inexistente" });
     }
 
-    // Insertar pedido (incluye la columna mozo que ya debería existir)
     const { rows: newPedidos } = await pool.query(
       `INSERT INTO pedidos (mesa_id, estado, total, mozo)
        VALUES ($1, 'abierto', 0, $2)
@@ -77,7 +82,6 @@ export const crearPedido = async (req, res) => {
     );
     const pedido = newPedidos[0];
 
-    // Actualizar estado de la mesa
     await pool.query(`UPDATE mesas SET estado = 'ocupada' WHERE id = $1`, [mesa_id]);
 
     console.log("✅ pedido creado con mozo:", pedido);
@@ -96,14 +100,10 @@ export const agregarProducto = async (req, res) => {
 
   try {
     const { rows: pedidos } = await pool.query('SELECT * FROM pedidos WHERE id = $1', [id]);
-    if (pedidos.length === 0) {
-      return res.status(404).json({ error: 'Pedido no encontrado' });
-    }
+    if (pedidos.length === 0) return res.status(404).json({ error: 'Pedido no encontrado' });
 
     const { rows: productos } = await pool.query('SELECT * FROM productos WHERE id = $1', [producto_id]);
-    if (productos.length === 0) {
-      return res.status(404).json({ error: 'Producto no encontrado' });
-    }
+    if (productos.length === 0) return res.status(404).json({ error: 'Producto no encontrado' });
 
     const producto = productos[0];
     const precio = Number(producto.precio);
@@ -134,18 +134,13 @@ export const preferenciaMercadoPago = async (req, res) => {
       `SELECT * FROM pedidos WHERE id = $1 AND estado = 'abierto'`,
       [id]
     );
-    if (pedidos.length === 0) {
-      return res.status(404).json({ error: 'Pedido abierto no encontrado' });
-    }
+    if (pedidos.length === 0) return res.status(404).json({ error: 'Pedido abierto no encontrado' });
 
     const { rows: detalles } = await pool.query(
       `SELECT subtotal FROM pedido_detalle WHERE pedido_id = $1`,
       [id]
     );
-
-    if (detalles.length === 0) {
-      return res.status(400).json({ error: 'Sin productos' });
-    }
+    if (detalles.length === 0) return res.status(400).json({ error: 'Sin productos' });
 
     const { total } = calcularTotales(detalles);
 
@@ -178,7 +173,6 @@ export const cerrarPedido = async (req, res) => {
 
   console.log('💰 cerrarPedido ID:', id, 'metodo:', metodo_pago, 'titular_id:', titular_id);
 
-  // Validar que id sea un número válido
   const pedidoId = parseInt(id, 10);
   if (isNaN(pedidoId)) {
     return res.status(400).json({ error: 'ID de pedido inválido' });
@@ -189,13 +183,11 @@ export const cerrarPedido = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Obtener pedido
     const { rows: pedidos } = await client.query('SELECT * FROM pedidos WHERE id = $1', [pedidoId]);
     if (pedidos.length === 0) throw new Error('Pedido no encontrado');
     const pedido = pedidos[0];
     if (pedido.estado !== 'abierto') throw new Error('Pedido ya cerrado');
 
-    // Obtener detalles
     const { rows: detalles } = await client.query(
       `SELECT pd.*, p.nombre
        FROM pedido_detalle pd
@@ -203,13 +195,12 @@ export const cerrarPedido = async (req, res) => {
        WHERE pd.pedido_id = $1`,
       [pedidoId]
     );
-
     if (detalles.length === 0) throw new Error('Sin productos');
 
     const { total, neto, iva } = calcularTotales(detalles);
     console.log('💵 Totales:', { total, neto, iva });
 
-    // Cerrar pedido (asegurar que se pasan los tres parámetros)
+    // Cerrar pedido
     const updateResult = await client.query(
       `UPDATE pedidos SET estado = 'cerrado', total = $1, metodo_pago = $2 WHERE id = $3`,
       [total, metodo_pago, pedidoId]
@@ -223,38 +214,54 @@ export const cerrarPedido = async (req, res) => {
     await client.query('COMMIT');
     console.log('✅ Pedido cerrado y mesa liberada:', pedido.mesa_id);
 
-    // Generar factura y ticket (fuera de la transacción)
+    // ========== GENERAR FACTURA ELECTRÓNICA Y PDF ==========
     let factura = null;
     let ticket = null;
     let numeroFactura = null;
 
     try {
-      factura = await crearFacturaAFIP({
-        total,
-        neto,
-        iva,
-        puntoDeVenta: Number(process.env.ARCA_PTO_VTA || 1),
-      });
-      numeroFactura = factura?.numeroFactura ?? null;
+      // Usar punto de venta desde variable de entorno o por defecto 1
+      const puntoVenta = Number(process.env.ARCA_PTO_VTA) || 1;
+      const tipoComprobante = 6; // Factura C (o B según CUIT)
+      
+      const facturaData = await crearFacturaAFIP({
+  total,
+  neto,
+  iva,
+  puntoVenta: 1,   // ← o el número que tengas habilitado (revisa con testSalesPoints)
+  tipoComprobante: 6,
+});
 
-      let titularId = titular_id;
-      if (!titularId) {
-        const { rows: titulares } = await pool.query('SELECT id FROM titulares WHERE activo = true LIMIT 1');
-        titularId = titulares[0]?.id;
-      }
+      numeroFactura = facturaData.numero;
+      factura = {
+        numeroFactura: facturaData.numero,
+        cae: facturaData.cae,
+        vencimientoCAE: facturaData.vencimiento,
+      };
 
-      ticket = await generarTicket(
-        { ...pedido, total, metodo_pago },
-        detalles,
-        factura,
-        titularId
+      // Guardar factura en la base de datos
+      await pool.query(
+        `INSERT INTO facturas (pedido_id, numero, cae, vencimiento_cae, total, punto_venta, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`,
+        [pedidoId, facturaData.numero, facturaData.cae, facturaData.vencimiento, total, puntoVenta]
       );
-      console.log('✅ Factura generada:', numeroFactura);
+
+      // Generar ticket PDF con los datos reales
+      const pdfPath = await generarTicketPDF(pedido, detalles, factura);
+      ticket = path.basename(pdfPath);
+
+      console.log('✅ Factura generada con CAE:', facturaData.cae);
     } catch (err) {
-      console.log('⚠ Error AFIP/PDF:', err.message);
+      console.error('⚠ Error en ARCA o PDF:', err.message);
+      // Fallback: ticket simulado
+      ticket = 'factura-simulada.pdf';
+      const fallbackPath = path.join(__dirname, '../../tickets', ticket);
+      if (!fs.existsSync(fallbackPath)) {
+        fs.writeFileSync(fallbackPath, 'Factura simulada por error en ARCA');
+      }
     }
 
-    // Registrar venta
+    // Registrar la venta (resumen)
     try {
       await pool.query(
         `INSERT INTO ventas (numero_factura, total, metodo_pago, fecha, mesa_id, estado)
@@ -269,7 +276,7 @@ export const cerrarPedido = async (req, res) => {
       message: 'Pedido cerrado',
       metodo_pago,
       factura,
-      ticket: ticket && factura ? `/tickets/factura-${factura.numeroFactura}.pdf` : null,
+      ticket: ticket ? `/tickets/${ticket}` : null,
     });
   } catch (error) {
     await client.query('ROLLBACK');

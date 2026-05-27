@@ -4,6 +4,8 @@ import path from 'path';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import Afip from '@afipsdk/afip.js'; // 👈 Importar el SDK directamente
+// En index.js, después de conectar DB
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +25,7 @@ import cierreRoutes from './src/routes/cierre.js';
 import ventasRoutes from './src/routes/ventas.js';
 import titularRoutes from './src/routes/titulares.js';
 import insumosRoutes from './src/routes/insumos.js';
+import facturasRoutes from './src/routes/facturas.js';
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -51,10 +54,26 @@ app.use('/api/cierre', cierreRoutes);
 app.use('/api/ventas', ventasRoutes);
 app.use('/api/titulares', titularRoutes);
 app.use('/api/insumos', insumosRoutes);
+app.use('/api/facturas', facturasRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date() });
+});
+
+// ========== Ruta temporal para ver puntos de venta habilitados ==========
+app.get('/api/test/sales-points', async (req, res) => {
+  try {
+    const afip = new Afip({
+      CUIT: 20409378472,
+      access_token: process.env.AFIP_ACCESS_TOKEN,
+    });
+    const salesPoints = await afip.ElectronicBilling.getSalesPoints();
+    res.json(salesPoints);
+  } catch (error) {
+    console.error('Error al obtener puntos de venta:', error);
+    res.status(500).json({ error: error.message, details: error?.response?.data });
+  }
 });
 
 // Manejador de errores global

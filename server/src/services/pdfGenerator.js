@@ -1,11 +1,38 @@
 import puppeteer from 'puppeteer';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+// Configurar __dirname en ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const ticketsDir = path.join(__dirname, '../../tickets');
 
+// Asegurar que la carpeta tickets existe
+if (!fs.existsSync(ticketsDir)) {
+  fs.mkdirSync(ticketsDir, { recursive: true });
+}
+
+const ETIQUETA_METODO = {
+  efectivo: 'PAGO EN EFECTIVO',
+  debito: 'PAGO CON DÉBITO',
+  tarjeta: 'PAGO CON TARJETA',
+  transferencia: 'TRANSFERENCIA BANCARIA',
+  qr: 'PAGO CON QR',
+};
+
 const generarHTMLFactura = (pedido, detalles, factura) => {
-  // Aquí escribís todo el HTML/CSS con el diseño exacto de tu Factura C
+  const metodoTexto = ETIQUETA_METODO[pedido.metodo_pago] || pedido.metodo_pago;
+  const fechaEmision = new Date().toLocaleDateString('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+  });
+  const periodo = new Date().toLocaleDateString('es-AR', {
+    month: '2-digit',
+    year: 'numeric',
+    timeZone: 'America/Argentina/Buenos_Aires',
+  });
+
   return `
     <!DOCTYPE html>
     <html>
@@ -25,21 +52,34 @@ const generarHTMLFactura = (pedido, detalles, factura) => {
         <p>IIBB: Reg. Simplificado Cba - No alcanzado</p>
         <p>Inicio actividades: 01/07/2022</p>
         <p>CUIT: 20367740842 | Condición IVA: Monotributista</p>
-        <div class="factura-titulo"> FACTURA C — Comprobante Fiscal AFIP</div>
+        <div class="factura-titulo">FACTURA C — Comprobante Fiscal AFIP</div>
       </div>
-      <p>Punto de venta: 0003 | Comp. N°: 0003-${String(factura.numeroFactura).padStart(8,'0')}</p>
-      <p>Fecha: ${new Date().toLocaleDateString('es-AR')}</p>
-      <p>Cond. de venta: Contado | Período: ${new Date().toLocaleDateString('es-AR', {month:'2-digit',year:'numeric'})}</p>
+      <p>Punto de venta: 0003 | Comp. N°: 0003-${String(factura.numeroFactura).padStart(8, '0')}</p>
+      <p>Fecha: ${fechaEmision}</p>
+      <p>Cond. de venta: Contado | Período: ${periodo}</p>
       <p>Señores: Consumidor Final | CUIT/DNI: — | Cond. IVA: Consumidor Final</p>
       <table>
         <thead><tr><th>Descripción</th><th>Cant.</th><th>Precio unit.</th><th>Subtotal</th></tr></thead>
         <tbody>
-          ${detalles.map(d => `<tr><td>${d.nombre}</td><td>${d.cantidad}</td><td>$${Number(d.precio_unitario).toFixed(2)}</td><td>$${Number(d.subtotal).toFixed(2)}</td></tr>`).join('')}
+          ${detalles.map(d => `
+            <tr>
+              <td>${d.nombre || 'Producto'}</td>
+              <td>${d.cantidad}</td>
+              <td>$${Number(d.precio_unitario).toFixed(2)}</td>
+              <td>$${Number(d.subtotal).toFixed(2)}</td>
+            </tr>
+          `).join('')}
         </tbody>
       </table>
       <div class="total">TOTAL: $${Number(pedido.total).toFixed(2)}</div>
-      <div>${ETIQUETA_METODO[pedido.metodo_pago] || pedido.metodo_pago}</div>
-      <div class="cae">CAE N°: ${factura.cae}<br>Vto. CAE: ${factura.vencimientoCAE}<br>Comprobante autorizado por ARCA/AFIP.<br>Válido como comprobante fiscal.<br>Verificar en AFIP</div>
+      <div>${metodoTexto}</div>
+      <div class="cae">
+        CAE N°: ${factura.cae}<br>
+        Vto. CAE: ${factura.vencimientoCAE}<br>
+        Comprobante autorizado por ARCA/AFIP.<br>
+        Válido como comprobante fiscal.<br>
+        Verificar en AFIP
+      </div>
     </body>
     </html>
   `;
@@ -47,9 +87,9 @@ const generarHTMLFactura = (pedido, detalles, factura) => {
 
 export const generarTicketPDF = async (pedido, detalles, factura) => {
   const html = generarHTMLFactura(pedido, detalles, factura);
-  const browser = await puppeteer.launch();
+  const browser = await puppeteer.launch({ args: ['--no-sandbox'] }); // para entornos sin sandbox
   const page = await browser.newPage();
-  await page.setContent(html);
+  await page.setContent(html, { waitUntil: 'networkidle0' });
   const filename = `factura-${factura.numeroFactura}.pdf`;
   const filepath = path.join(ticketsDir, filename);
   await page.pdf({ path: filepath, format: 'A4', printBackground: true });
