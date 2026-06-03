@@ -1,12 +1,29 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { getResumenDia, getFacturasPorFecha, reemitirFacturas } from '../api';
 
 export default function Reportes() {
-  const [fecha, setFecha] = useState('2025-04-30');
+  // Obtener fecha actual en YYYY-MM-DD
+  const obtenerFechaActual = () => {
+    const hoy = new Date();
+    const year = hoy.getFullYear();
+    const month = String(hoy.getMonth() + 1).padStart(2, '0');
+    const day = String(hoy.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const [fecha, setFecha] = useState(obtenerFechaActual());
   const [reporte, setReporte] = useState(null);
   const [facturas, setFacturas] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [reenviando, setReenviando] = useState(false);
+
+  const getVentasPorTurno = (ventas, turno) => {
+  return ventas.filter(v => {
+    const hora = new Date(v.fecha_local).getHours(); // ← usar fecha_local
+    const esManana = hora < 15; // ajusta según el horario de turno
+    return turno === 'mañana' ? esManana : !esManana;
+  });
+};
 
   const generarReporte = async () => {
     setCargando(true);
@@ -25,14 +42,18 @@ export default function Reportes() {
     }
   };
 
+  // Al montar el componente, generar reporte del día actual
+  useEffect(() => {
+    generarReporte();
+  }, []);
+
   const handleReenviar = async () => {
     if (!window.confirm(`¿Reenviar todas las facturas del día ${fecha} a ARCA?`)) return;
     setReenviando(true);
     try {
       const res = await reemitirFacturas(fecha);
       alert(res.message || `Se reenviaron ${res.facturas?.length || 0} facturas correctamente`);
-      // Opcional: refrescar el reporte para ver si cambió algo
-      await generarReporte();
+      await generarReporte(); // Refrescar después de reenviar
     } catch (err) {
       alert('Error al reenviar facturas: ' + err.message);
     } finally {
