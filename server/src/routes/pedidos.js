@@ -1,28 +1,22 @@
 import { Router } from 'express';
-
-import {
-  getPedidoActivoPorMesa,
-  crearPedido,
-  agregarProducto,
+import { 
+  getPedidoActivoPorMesa, 
+  crearPedido, 
+  agregarProducto, 
+  preferenciaMercadoPago, 
   cerrarPedido,
-  preferenciaMercadoPago,
+  iniciarPagoPoint,
+  procesarPagoTarjeta   // ✅ Agregar esta línea
 } from '../controllers/pedidoController.js';
 
 const router = Router();
 
-// ✅ pedido por mesa
+router.post('/:id/pago-point', iniciarPagoPoint);
 router.get('/mesa/:mesaId', getPedidoActivoPorMesa);
-
-// ✅ crear pedido
 router.post('/', crearPedido);
-
-// ✅ Mercado Pago — link para QR (Checkout Pro)
 router.post('/:id/preferencia-mp', preferenciaMercadoPago);
-
-// ✅ agregar producto
 router.post('/:id/agregarProducto', agregarProducto);
-
-// ✅ cerrar pedido
 router.post('/:id/cerrar', cerrarPedido);
+router.post('/:id/procesar-pago-tarjeta', procesarPagoTarjeta);  // ✅ nueva ruta
 
 export default router;

@@ -4,17 +4,16 @@ import path from 'path';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-import Afip from '@afipsdk/afip.js'; // 👈 Importar el SDK directamente
-// En index.js, después de conectar DB
+import { limpiarTicketsViejos } from './src/services/cleanTickets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Importa el pool (aunque no lo usemos directamente aquí)
+// Importaciones de la base de datos y controladores
 import pool from './src/db/pool.js';
 import { crearTablas } from './src/db/createTables.js';
 
-// Rutas (todas deben estar adaptadas a PostgreSQL)
+// Rutas
 import productosRoutes from './src/routes/productos.js';
 import mesasRoutes from './src/routes/mesas.js';
 import pedidosRouter from './src/routes/pedidos.js';
@@ -37,7 +36,7 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-// Crear tablas en la base de datos (asíncrono)
+// Crear tablas (esperar a que termine antes de continuar)
 await crearTablas();
 
 // Servir tickets estáticos
@@ -61,21 +60,6 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date() });
 });
 
-// ========== Ruta temporal para ver puntos de venta habilitados ==========
-app.get('/api/test/sales-points', async (req, res) => {
-  try {
-    const afip = new Afip({
-      CUIT: 20409378472,
-      access_token: process.env.AFIP_ACCESS_TOKEN,
-    });
-    const salesPoints = await afip.ElectronicBilling.getSalesPoints();
-    res.json(salesPoints);
-  } catch (error) {
-    console.error('Error al obtener puntos de venta:', error);
-    res.status(500).json({ error: error.message, details: error?.response?.data });
-  }
-});
-
 // Manejador de errores global
 app.use((err, req, res, next) => {
   console.error(err.stack);
@@ -88,6 +72,12 @@ const server = app.listen(PORT);
 server.once('listening', () => {
   console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
   console.log('   Dejá esta terminal abierta. Ctrl+C para detener.');
+  
+  // Programar limpieza de tickets viejos (una vez al día, pero no antes de que arranque)
+  setInterval(() => {
+    console.log('🗑️ Ejecutando limpieza automática de tickets viejos');
+    limpiarTicketsViejos();
+  }, 24 * 60 * 60 * 1000);
 });
 
 server.on('error', (err) => {

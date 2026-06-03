@@ -1,18 +1,16 @@
 import pool from '../db/pool.js';
 
-export const getFacturas = async (req, res) => {
-  const { fecha } = req.query;
+// En facturasController.js
+export const getFacturasPorFecha = async (req, res) => {
+  const { fecha } = req.params; // fecha en formato 'YYYY-MM-DD'
   try {
-    let query = 'SELECT * FROM facturas ORDER BY created_at DESC';
-    let params = [];
-    if (fecha) {
-      query = 'SELECT * FROM facturas WHERE DATE(created_at) = $1 ORDER BY created_at DESC';
-      params = [fecha];
-    }
-    const { rows } = await pool.query(query, params);
+    const { rows } = await pool.query(
+      `SELECT * FROM facturas 
+       WHERE (fecha_emision AT TIME ZONE 'UTC' AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE = $1`,
+      [fecha]
+    );
     res.json(rows);
   } catch (error) {
-    console.error(error);
     res.status(500).json({ error: error.message });
   }
 };

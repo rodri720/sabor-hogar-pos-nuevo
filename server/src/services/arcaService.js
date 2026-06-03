@@ -15,7 +15,7 @@ function getTodayAsNumber() {
 const afip = new Afip({
   CUIT: Number(process.env.AFIP_CUIT),
   access_token: process.env.AFIP_ACCESS_TOKEN,
-  production: false,
+  production: true,
 });
 
 export const crearFacturaAFIP = async ({ total, neto, iva, puntoVenta = 1, tipoComprobante = 6 }) => {
@@ -59,7 +59,6 @@ export const crearFacturaAFIP = async ({ total, neto, iva, puntoVenta = 1, tipoC
     const response = await afip.ElectronicBilling.createVoucher(data);
     console.log('📥 Respuesta ARCA:', response);
 
-    // Manejo flexible de respuesta (formato directo o con FeCabResp)
     const cae = response.CAE || response.FeCabResp?.CAE;
     const vencimiento = response.CAEFchVto || response.FeCabResp?.FchVto;
 
