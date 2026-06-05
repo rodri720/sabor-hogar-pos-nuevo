@@ -1,0 +1,9 @@
+[req]
+distinguished_name = req_distinguished_name
+prompt = no
+
+[req_distinguished_name]
+C = AR
+O = ROSSI KATERINNE MICAELA SOLANGE
+CN = certificado_produccion_saborhogar
+serialNumber = CUIT 27384132702
