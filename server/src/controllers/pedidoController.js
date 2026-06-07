@@ -1,5 +1,5 @@
 import pool from '../db/pool.js';
-import { crearFacturaAFIP } from '../services/arcaService.js';
+import { crearFacturaAFIP, calcularImportesFiscales, getConfigFiscal } from '../services/arcaService.js';
 import { generarTicketPDF } from '../services/generarTicketPDF.js';
 import { printTicket } from '../services/printService.js';
 import fs from 'fs';
@@ -187,8 +187,9 @@ export const cerrarPedido = async (req, res) => {
     );
     if (detalles.length === 0) throw new Error('Sin productos');
 
-    const { total, neto, iva } = calcularTotales(detalles);
-    console.log('💵 Totales:', { total, neto, iva });
+    const totalPedido = calcularTotales(detalles).total;
+    const { total, neto, iva } = calcularImportesFiscales(totalPedido);
+    console.log('💵 Totales:', { total, neto, iva, fiscal: getConfigFiscal() });
 
     // Cerrar pedido
     const updateResult = await client.query(
@@ -210,15 +211,14 @@ export const cerrarPedido = async (req, res) => {
     let numeroFactura = null;
 
     try {
-      const puntoVenta = Number(process.env.ARCA_PTO_VTA) || 1;
-      const tipoComprobante = 6;
-      
+      const { ptoVta, cbteTipo } = getConfigFiscal();
+
       const facturaData = await crearFacturaAFIP({
         total,
         neto,
         iva,
-        puntoVenta: 1,
-        tipoComprobante: 6,
+        puntoVenta: ptoVta,
+        tipoComprobante: cbteTipo,
       });
 
       numeroFactura = facturaData.numero;
@@ -232,7 +232,7 @@ export const cerrarPedido = async (req, res) => {
       await pool.query(
         `INSERT INTO facturas (pedido_id, numero, cae, vencimiento_cae, total, punto_venta, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`,
-        [pedidoId, facturaData.numero, facturaData.cae, facturaData.vencimiento, total, puntoVenta]
+        [pedidoId, facturaData.numero, facturaData.cae, facturaData.vencimiento, total, ptoVta]
       );
 
       // Generar ticket PDF con los datos reales

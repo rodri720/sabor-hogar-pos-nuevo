@@ -1,32 +1,17 @@
-import fs from 'fs';
-import { Arca } from '@arcasdk/core';
-import dotenv from 'dotenv';
-import path from 'path';
+import { diagnosticarArca, getConfigFiscal } from './src/services/arcaService.js';
 
-dotenv.config();
-
-const certPath = path.resolve(process.env.ARCA_CERT_PATH);
-const keyPath = path.resolve(process.env.ARCA_KEY_PATH);
-
-console.log('Cert path:', certPath);
-console.log('Key path:', keyPath);
+const config = getConfigFiscal();
+console.log('Config:', config);
 
 try {
-  const cert = fs.readFileSync(certPath, 'utf8');
-  const key = fs.readFileSync(keyPath, 'utf8');
-  console.log('Archivos leídos correctamente');
-  console.log('Cert comienza con:', cert.slice(0, 30));
-  console.log('Key comienza con:', key.slice(0, 30));
-
-  const arca = new Arca({
-    cuit: parseInt(process.env.ARCA_CUIT),
-    cert,
-    key,
-    production: false,
-  });
-
-  const last = await arca.electronicBillingService.getLastVoucher(1, 6);
-  console.log('✅ Último comprobante:', last);
+  const result = await diagnosticarArca();
+  console.log(JSON.stringify(result, null, 2));
+  if (result.errores) {
+    console.error('❌', result.errores);
+    process.exit(1);
+  }
+  console.log('✅ ARCA responde correctamente');
 } catch (err) {
   console.error('❌ Error:', err.message);
+  process.exit(1);
 }
