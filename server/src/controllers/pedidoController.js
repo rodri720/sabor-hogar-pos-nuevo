@@ -17,7 +17,6 @@ const METODOS_PAGO = new Set([
   'qr',
 ]);
 
-// ✅ Solo una definición de calcularTotales
 export const calcularTotales = (detalles) => {
   const total = detalles.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
   const neto = parseFloat((total / 1.21).toFixed(2));
@@ -127,8 +126,6 @@ export const agregarProducto = async (req, res) => {
 };
 
 // ====================== PREFERENCIA MERCADO PAGO ======================
-// Nota: Esta función solo se usa si tienes integración con Mercado Pago.
-// Si no la usas, puedes eliminarla o dejarla comentada.
 export const preferenciaMercadoPago = async (req, res) => {
   const { id } = req.params;
   try {
@@ -145,8 +142,6 @@ export const preferenciaMercadoPago = async (req, res) => {
     if (detalles.length === 0) return res.status(400).json({ error: 'Sin productos' });
 
     const { total } = calcularTotales(detalles);
-    // Aquí iría la llamada a crearPreferenciaCobro (importada externamente)
-    // Por ahora devolvemos un error indicando que no está configurado
     res.status(503).json({ configured: false, error: 'Mercado Pago no configurado' });
   } catch (error) {
     console.error('🔥 ERROR preferenciaMercadoPago:', error);
@@ -154,7 +149,7 @@ export const preferenciaMercadoPago = async (req, res) => {
   }
 };
 
-// ====================== CERRAR PEDIDO ======================
+// ====================== CERRAR PEDIDO (MULTI‑TITULAR) ======================
 export const cerrarPedido = async (req, res) => {
   const { id } = req.params;
   const metodoRaw = req.body?.metodo_pago;
@@ -187,18 +182,54 @@ export const cerrarPedido = async (req, res) => {
     );
     if (detalles.length === 0) throw new Error('Sin productos');
 
+    // ====================== DATOS DEL TITULAR ======================
+    const configDefault = getConfigFiscal();
+    let cuitTitular = null;
+    let ptoVtaTitular = null;
+    let cbteTipoTitular = null;
+    let titularNombre = null;
+
+    const { rows: kateRows } = await client.query(
+      `SELECT id FROM titulares WHERE cuit = $1 LIMIT 1`,
+      [configDefault.cuit.replace(/-/g, '')]
+    );
+    const idKaterine = kateRows.length ? kateRows[0].id : null;
+
+    const esKaterine = (titular_id && idKaterine && parseInt(titular_id) === idKaterine) || (!titular_id);
+
+    if (!esKaterine && titular_id) {
+      const { rows: titularRows } = await client.query(
+        `SELECT cuit, punto_venta, tipo_comprobante, nombre, razon_social
+         FROM titulares WHERE id = $1 AND activo = true`,
+        [titular_id]
+      );
+      if (titularRows.length === 0) {
+        throw new Error(`Titular con id ${titular_id} no encontrado o inactivo`);
+      }
+      const titular = titularRows[0];
+      cuitTitular = titular.cuit.replace(/-/g, '');
+      ptoVtaTitular = parseInt(titular.punto_venta, 10);
+      cbteTipoTitular = titular.tipo_comprobante || 11;
+      titularNombre = titular.razon_social || titular.nombre;
+      console.log(`📄 Facturando para: ${titularNombre} (CUIT ${cuitTitular}, PV ${ptoVtaTitular})`);
+    } else {
+      cuitTitular = configDefault.cuit.replace(/-/g, '');
+      ptoVtaTitular = configDefault.ptoVta;
+      cbteTipoTitular = configDefault.cbteTipo;
+      titularNombre = 'ROSSI KATERINNE MICAELA SOLANGE';
+      console.log(`📄 Facturando para: Katerine (CUIT ${cuitTitular}, PV ${ptoVtaTitular})`);
+    }
+
     const totalPedido = calcularTotales(detalles).total;
     const { total, neto, iva } = calcularImportesFiscales(totalPedido);
-    console.log('💵 Totales:', { total, neto, iva, fiscal: getConfigFiscal() });
+    console.log('💵 Totales:', { total, neto, iva });
 
-    // Cerrar pedido
     const updateResult = await client.query(
       `UPDATE pedidos SET estado = 'cerrado', total = $1, metodo_pago = $2 WHERE id = $3`,
       [total, metodo_pago, pedidoId]
     );
     if (updateResult.rowCount === 0) throw new Error('No se pudo actualizar el pedido');
 
-    // Liberar mesa
     const { rowCount } = await client.query(`UPDATE mesas SET estado = 'libre' WHERE id = $1`, [pedido.mesa_id]);
     if (rowCount === 0) throw new Error('No se encontró la mesa para liberar');
 
@@ -211,14 +242,14 @@ export const cerrarPedido = async (req, res) => {
     let numeroFactura = null;
 
     try {
-      const { ptoVta, cbteTipo } = getConfigFiscal();
-
+      // 🔁 CAMBIO IMPORTANTE: se usa cuitTitular en lugar de cuit
       const facturaData = await crearFacturaAFIP({
         total,
         neto,
         iva,
-        puntoVenta: ptoVta,
-        tipoComprobante: cbteTipo,
+        puntoVenta: ptoVtaTitular,
+        tipoComprobante: cbteTipoTitular,
+        cuitTitular: cuitTitular,   // ✅ parámetro corregido
       });
 
       numeroFactura = facturaData.numero;
@@ -228,60 +259,44 @@ export const cerrarPedido = async (req, res) => {
         vencimientoCAE: facturaData.vencimiento,
       };
 
-      // Guardar factura en la base de datos
       await pool.query(
         `INSERT INTO facturas (pedido_id, numero, cae, vencimiento_cae, total, punto_venta, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`,
-        [pedidoId, facturaData.numero, facturaData.cae, facturaData.vencimiento, total, ptoVta]
+        [pedidoId, facturaData.numero, facturaData.cae, facturaData.vencimiento, total, ptoVtaTitular]
       );
 
-      // Generar ticket PDF con los datos reales
       const pdfPath = await generarTicketPDF(pedido, detalles, factura);
       ticket = path.basename(pdfPath);
 
       console.log('✅ Factura generada con CAE:', facturaData.cae);
 
-      // ========== IMPRESIÓN FÍSICA DEL TICKET (no interrumpe el flujo) ==========
+      // ========== IMPRESIÓN FÍSICA ==========
       try {
-        // Obtener titular para construir el QR de AFIP
-        let titular = null;
-        if (titular_id) {
-          const { rows } = await pool.query('SELECT * FROM titulares WHERE id = $1', [titular_id]);
-          titular = rows[0];
-        }
-        if (!titular) {
-          const { rows } = await pool.query('SELECT * FROM titulares WHERE activo = true LIMIT 1');
-          titular = rows[0];
-        }
-        if (titular) {
-          const cuitNum = (titular.cuit || '').replace(/-/g, '');
-          const puntoVentaNum = String(titular.punto_venta || '00001').padStart(5, '0');
-          const nroComprobante = String(factura.numeroFactura).padStart(8, '0');
-          const vtoCAE = factura.vencimientoCAE.replace(/-/g, '');
-          const importeTotal = Number(pedido.total).toFixed(2);
-          const qrPayload = `${cuitNum}|${puntoVentaNum}|${nroComprobante}|${factura.cae}|${vtoCAE}|${importeTotal}`;
-          const qrUrl = `https://www.afip.gob.ar/fe/qr/?p=${encodeURIComponent(qrPayload)}`;
+        const cuitNum = cuitTitular;
+        const puntoVentaNum = String(ptoVtaTitular).padStart(5, '0');
+        const nroComprobante = String(factura.numeroFactura).padStart(8, '0');
+        const vtoCAE = factura.vencimientoCAE.replace(/-/g, '');
+        const importeTotal = Number(total).toFixed(2);
+        const qrPayload = `${cuitNum}|${puntoVentaNum}|${nroComprobante}|${factura.cae}|${vtoCAE}|${importeTotal}`;
+        const qrUrl = `https://www.afip.gob.ar/fe/qr/?p=${encodeURIComponent(qrPayload)}`;
 
-          const ticketData = {
-            numeroTicket: factura.numeroFactura,
-            detalles: detalles.map(d => ({ nombre: d.nombre, cantidad: d.cantidad, subtotal: d.subtotal })),
-            total: pedido.total,
-            cae: factura.cae,
-            qrUrl: qrUrl,
-          };
+        const ticketData = {
+          numeroTicket: factura.numeroFactura,
+          detalles: detalles.map(d => ({ nombre: d.nombre, cantidad: d.cantidad, subtotal: d.subtotal })),
+          total: total,
+          cae: factura.cae,
+          qrUrl: qrUrl,
+          titularNombre: titularNombre,
+          titularCuit: cuitTitular,
+        };
 
-          await printTicket(ticketData);
-          console.log("✅ Ticket enviado a la impresora física");
-        } else {
-          console.warn("⚠ No se encontró titular para imprimir ticket físico");
-        }
+        await printTicket(ticketData);
+        console.log("✅ Ticket enviado a la impresora física");
       } catch (printErr) {
         console.error("❌ Error al imprimir ticket físico:", printErr.message);
-        // No lanzamos excepción para que el resto del flujo continúe
       }
     } catch (err) {
       console.error('⚠ Error en ARCA o PDF:', err.message);
-      // Fallback: ticket simulado
       ticket = 'factura-simulada.pdf';
       const fallbackPath = path.join(__dirname, '../../tickets', ticket);
       if (!fs.existsSync(fallbackPath)) {
@@ -289,7 +304,6 @@ export const cerrarPedido = async (req, res) => {
       }
     }
 
-    // Registrar la venta (resumen)
     try {
       await pool.query(
         `INSERT INTO ventas (numero_factura, total, metodo_pago, fecha, mesa_id, estado)
@@ -315,7 +329,7 @@ export const cerrarPedido = async (req, res) => {
   }
 };
 
-// ====================== NUEVO: INICIAR PAGO CON TERMINAL POINT ======================
+// ====================== INICIAR PAGO CON TERMINAL POINT ======================
 export const iniciarPagoPoint = async (req, res) => {
   const { id: pedidoId } = req.params;
   const { deviceId } = req.body;
@@ -347,14 +361,8 @@ export const iniciarPagoPoint = async (req, res) => {
       return res.status(400).json({ error: 'Total inválido' });
     }
 
-    // Nota: createPaymentIntent debe ser importada desde '../services/mercadoPagoPointService.js'
-    // Si no tienes ese servicio, comenta esta parte.
-    // const paymentIntent = await createPaymentIntent(pedidoId, total, deviceId);
-    // await pool.query(`UPDATE pedidos SET mp_payment_intent_id = $1 WHERE id = $2`, [paymentIntent.id, pedidoId]);
-
     res.json({
       message: 'Intención de pago creada. Esperando confirmación en la terminal...',
-      // paymentIntent,
     });
   } catch (error) {
     console.error('❌ Error en iniciarPagoPoint:', error);
@@ -367,7 +375,6 @@ export const procesarPagoTarjeta = async (req, res) => {
   const { id: pedidoId } = req.params;
   const { token, amount } = req.body;
   try {
-    // Importación dinámica para evitar problemas si no está instalado
     const { MercadoPagoConfig, Payment } = await import('mercadopago');
     const client = new MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN });
     const payment = new Payment(client);

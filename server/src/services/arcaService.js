@@ -3,12 +3,14 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { Arca } from '@arcasdk/core';
+import { getArcaClientForCuit } from './certificateLoader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
+// ====================== FUNCIONES AUXILIARES EXISTENTES ======================
 function loadPem(inlineValue, pathEnvVar) {
   if (inlineValue?.includes('BEGIN')) return inlineValue;
   const filePath = process.env[pathEnvVar];
@@ -30,13 +32,9 @@ function fechaArgentina() {
 function getArcaClient() {
   const cuit = parseInt(process.env.ARCA_CUIT, 10);
   if (!cuit) throw new Error('ARCA_CUIT no configurado en server/.env');
-
-  // Certificado de producción falla en homologación; por defecto producción.
   const production = process.env.ARCA_PRODUCTION !== 'false';
-
   const cert = loadPem(process.env.AFIP_CERT, 'ARCA_CERT_PATH');
   const key = loadPem(process.env.AFIP_KEY, 'ARCA_KEY_PATH');
-
   return new Arca({ cuit, cert, key, production });
 }
 
@@ -54,6 +52,7 @@ function extractArcaErrors(result) {
     .join(' | ');
 }
 
+// ====================== CONFIGURACIÓN FISCAL (sigue usando .env) ======================
 export function getConfigFiscal() {
   const cbteTipo = parseInt(process.env.ARCA_CBTE_TIPO || '11', 10);
   const ptoVta = parseInt(process.env.ARCA_PTO_VTA || '1', 10);
@@ -66,44 +65,42 @@ export function getConfigFiscal() {
   };
 }
 
-/** Importes según tipo de comprobante (Factura C monotributo: sin IVA desglosado). */
 export function calcularImportesFiscales(totalBruto) {
   const total = parseFloat(Number(totalBruto).toFixed(2));
   const { esFacturaC } = getConfigFiscal();
-
   if (esFacturaC) {
     return { total, neto: total, iva: 0 };
   }
-
   const neto = parseFloat((total / 1.21).toFixed(2));
   const iva = parseFloat((total - neto).toFixed(2));
   return { total, neto, iva };
 }
 
+// ====================== DIAGNÓSTICO (opcional) ======================
 export async function diagnosticarArca() {
   const arca = getArcaClient();
   const config = getConfigFiscal();
-
   const [status, puntos, last] = await Promise.all([
     arca.electronicBillingService.getServerStatus(),
     arca.electronicBillingService.getSalesPoints(),
     arca.electronicBillingService.getLastVoucher(config.ptoVta, config.cbteTipo),
   ]);
-
   return { config, status, puntos, last, errores: extractArcaErrors(last) || extractArcaErrors(puntos) };
 }
 
+// ====================== NUEVA FUNCIÓN crearFacturaAFIP (MULTI‑TITULAR) ======================
 export async function crearFacturaAFIP({
   total,
   neto,
   iva,
   puntoVenta,
   tipoComprobante,
+  cuitTitular,
 }) {
-  const arca = getArcaClient();
-  const config = getConfigFiscal();
-  const pto = puntoVenta ?? config.ptoVta;
-  const tipo = tipoComprobante ?? config.cbteTipo;
+  // Usa el loader que selecciona el certificado según el CUIT del titular
+  const arca = getArcaClientForCuit(cuitTitular, true);
+  const pto = puntoVenta;
+  const tipo = tipoComprobante;
   const esFacturaC = tipo === 11;
 
   const payload = {
@@ -123,6 +120,7 @@ export async function crearFacturaAFIP({
     MonId: 'PES',
     MonCotiz: 1,
     CondicionIVAReceptorId: 5,
+    Cuit: cuitTitular,   // CUIT del titular que emite
   };
 
   if (!esFacturaC && iva > 0) {
@@ -131,7 +129,6 @@ export async function crearFacturaAFIP({
 
   const result = await arca.electronicBillingService.createNextVoucher(payload);
   const errMsg = extractArcaErrors(result);
-
   if (errMsg || !result.cae) {
     throw new Error(errMsg || 'ARCA no devolvió CAE');
   }
@@ -139,7 +136,6 @@ export async function crearFacturaAFIP({
   const detRaw = result.response?.FeDetResp?.FECAEDetResponse;
   const det = Array.isArray(detRaw) ? detRaw[0] : detRaw;
   const numero = det?.CbteDesde;
-
   const vencRaw = String(result.caeFchVto || det?.CAEFchVto || '');
   const vencimiento =
     vencRaw.length === 8
